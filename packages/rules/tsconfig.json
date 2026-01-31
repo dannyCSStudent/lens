@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "paths": {
+      "@repo/contracts": ["../contracts/src/index.ts"]
+    }
+  },
+  "include": ["src"],
+  
+}

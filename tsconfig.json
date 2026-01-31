@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@repo/contracts": ["packages/contracts/src"],
+      "@repo/rules": ["packages/rules/src"]
+    }
+  }
+}
