@@ -1,10 +1,11 @@
 import uuid
-from sqlalchemy import Text, Enum, ForeignKey, TIMESTAMP
+from sqlalchemy import Text, Enum, ForeignKey, TIMESTAMP, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column
-
+from app.core.enums import ContentStatus
 from app.core.models.base import Base
+from sqlalchemy import Enum as SQLEnum
 
 from app.core.enums import PostType, ContentStatus
 
@@ -27,7 +28,11 @@ class Post(Base):
     title: Mapped[str] = mapped_column(Text)
     body: Mapped[str] = mapped_column(Text)
 
-    status: Mapped[ContentStatus] = mapped_column(Enum(ContentStatus))
+    status: Mapped[str] = mapped_column(
+    SQLEnum(ContentStatus, name="contentstatus"),
+    nullable=False,
+    server_default=text("'active'")
+)
 
     created_at: Mapped[str] = mapped_column(
         TIMESTAMP(timezone=True),

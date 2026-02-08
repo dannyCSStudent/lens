@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from uuid import UUID as PyUUID
 
 from app.core.models.base import Base
+from app.core.enums import ContentStatus  # assuming you already have this enum
 
 
 class ModerationAction(Base):
@@ -27,12 +28,17 @@ class ModerationAction(Base):
         nullable=False,
     )
 
-    action: Mapped[str] = mapped_column(
-        sa.Enum("removed_illegal", "locked", name="moderation_action"),
+    previous_status: Mapped[ContentStatus | None] = mapped_column(
+        sa.Enum(ContentStatus, name="contentstatus"),
+        nullable=True,
+    )
+
+    new_status: Mapped[ContentStatus] = mapped_column(
+        sa.Enum(ContentStatus, name="contentstatus"),
         nullable=False,
     )
 
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=True)
 
     moderator_id: Mapped[PyUUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),

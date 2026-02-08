@@ -65,3 +65,8 @@ class User(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+
