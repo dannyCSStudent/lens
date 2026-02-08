@@ -15,3 +15,8 @@ class ContentStatus(str, Enum):
     active = "active"
     locked = "locked"
     removed_illegal = "removed_illegal"
+
+
+class UserStatus(str, Enum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
