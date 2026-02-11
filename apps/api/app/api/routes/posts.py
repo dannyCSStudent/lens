@@ -9,6 +9,9 @@ from app.core.models.post import Post
 from app.services.post_service import get_post_by_id
 from fastapi import HTTPException
 from uuid import UUID
+from app.core.enums import ContentStatus
+from app.core.auth.dependencies import get_current_user
+from app.core.models.user import User
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -26,12 +29,14 @@ async def list_posts(
 async def create_post(
     data: PostCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     post = Post(
         title=data.title,
         body=data.body,
-        author_id=data.author_id,
+        author_id=current_user.id,
         post_type=data.post_type,
+        status=ContentStatus.active,
     )
 
     db.add(post)
@@ -39,6 +44,8 @@ async def create_post(
     await db.refresh(post)
 
     return post
+
+
 
 
 @router.get("/{post_id}", response_model=PostRead)

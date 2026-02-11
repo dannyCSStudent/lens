@@ -19,7 +19,7 @@ class PostBase(BaseModel):
 
 # ---- Create ----
 class PostCreate(PostBase):
-    author_id: UUID
+    pass
 
 
 # ---- Read ----

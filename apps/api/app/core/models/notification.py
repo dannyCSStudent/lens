@@ -1,44 +1,45 @@
-# models/notification.py
-from sqlalchemy import DateTime, ForeignKey, func
+from uuid import uuid4
+from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
-import sqlalchemy as sa
-from uuid import UUID as PyUUID
+from sqlalchemy import Text, JSON, DateTime
+from sqlalchemy.sql import func
 
 from app.core.models.base import Base
+from sqlalchemy import Index
 
 
 class Notification(Base):
     __tablename__ = "notifications"
 
-    id: Mapped[PyUUID] = mapped_column(
+    id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
-        server_default=sa.text("uuid_generate_v4()"),
+        default=uuid4,
     )
 
-    user_id: Mapped[PyUUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-
-    type: Mapped[str] = mapped_column(
-        sa.Enum("reply", "evidence_added", name="notification_type"),
-        nullable=False,
-    )
-
-    reference_id: Mapped[PyUUID] = mapped_column(
+    user_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
         nullable=False,
+        index=True,
     )
 
-    created_at: Mapped[sa.DateTime] = mapped_column(
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
+        index=True,
     )
 
-    read_at: Mapped[sa.DateTime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
+    __table_args__ = (
+        Index("ix_notifications_user_unread", "user_id", "read_at"),
     )

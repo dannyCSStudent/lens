@@ -1,5 +1,5 @@
 # models/moderation.py
-from sqlalchemy import Text, DateTime, ForeignKey, func
+from sqlalchemy import Text, DateTime, ForeignKey, func, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 import sqlalchemy as sa
@@ -50,3 +50,6 @@ class ModerationAction(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+

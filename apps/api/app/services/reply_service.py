@@ -4,30 +4,47 @@ from uuid import UUID
 from app.core.models.post import Post
 from app.core.models.reply import Reply
 from app.core.enums import ContentStatus
+from app.services.notification_service import create_notification
+from sqlalchemy.orm import selectinload
+from typing import List, Optional
+from app.core.constants.notification import NotificationType
+from app.services.mention_service import extract_mentioned_user_ids
 
 
 async def create_reply(
     db: AsyncSession,
     *,
-    post_id,
-    author_id,
-    body,
-    parent_reply_id=None,
+    post_id: UUID,
+    author_id: UUID,
+    body: str,
+    parent_id: UUID | None = None,
 ):
+    # -----------------------------
+    # Validate post
+    # -----------------------------
     post = await db.get(Post, post_id)
     if not post:
         raise ValueError("Post not found")
-
     if post.status != ContentStatus.active:
         raise ValueError("Replies are disabled for this post")
 
-    if parent_reply_id:
-        parent = await db.get(Reply, parent_reply_id)
-        if not parent:
-            raise ValueError("Parent reply not found")
-        if parent.post_id != post_id:
-            raise ValueError("Parent reply does not belong to this post")
+    # -----------------------------
+    # Validate parent reply (if any)
+    # -----------------------------
+    parent_reply = None
+    parent_reply_id = None
 
+    if parent_id:
+        parent_reply = await db.get(Reply, parent_id)
+        if not parent_reply:
+            raise ValueError("Parent reply not found")
+        if parent_reply.post_id != post_id:
+            raise ValueError("Parent reply does not belong to this post")
+        parent_reply_id = parent_reply.id
+
+    # -----------------------------
+    # Create reply
+    # -----------------------------
     reply = Reply(
         post_id=post_id,
         parent_reply_id=parent_reply_id,
@@ -39,29 +56,163 @@ async def create_reply(
     await db.commit()
     await db.refresh(reply)
 
-    return reply
+    # -----------------------------
+    # 🔔 Reply → Post author
+    # -----------------------------
+    if parent_reply_id is None:
+        if post.author_id != author_id:
+            await create_notification(
+                db,
+                user_id=post.author_id,
+                type=NotificationType.POST_REPLY,
+                payload={
+                    "post_id": str(post.id),
+                    "reply_id": str(reply.id),
+                    "author_id": str(author_id),
+                },
+            )
 
+    # -----------------------------
+    # 🔔 Reply → Reply author
+    # -----------------------------
+    if parent_reply and parent_reply.author_id != author_id:
+        await create_notification(
+            db,
+            user_id=parent_reply.author_id,
+            type=NotificationType.REPLY_REPLY,
+            payload={
+                "post_id": str(post.id),
+                "parent_reply_id": str(parent_reply.id),
+                "reply_id": str(reply.id),
+                "author_id": str(author_id),
+            },
+        )
+
+    # -----------------------------
+    # 🔔 Mentions (@username)
+    # -----------------------------
+    mentioned_user_ids = await extract_mentioned_user_ids(db, body)
+
+    for mentioned_user_id in mentioned_user_ids:
+        if mentioned_user_id == author_id:
+            continue
+
+        await create_notification(
+            db,
+            user_id=mentioned_user_id,
+            type=NotificationType.MENTION,
+            payload={
+                "post_id": str(post.id),
+                "reply_id": str(reply.id),
+                "author_id": str(author_id),
+            },
+        )
+
+    return reply
 
 async def get_replies_for_post(
     db: AsyncSession,
-    post_id: UUID,
-) -> list[Reply]:
-    # Ensure post exists
-    post = await db.get(Post, post_id)
-    if not post:
-        raise ValueError("Post not found")
+    post_id: str,
+    *,
+    status: Optional[ContentStatus] = ContentStatus.active,
+    limit: int = 20,
+    offset: int = 0,
+    load_children: bool = False,
+) -> List[Reply]:
+    """
+    Fetch top-level replies for a post.
+    If load_children=True, recursively fetch children.
+    """
 
-    # Optional: disallow reading replies for removed content
-    if post.status == ContentStatus.removed_illegal:
-        return []
+    stmt = select(Reply).where(
+        Reply.post_id == post_id,
+        Reply.parent_reply_id == None  # top-level only
+    ).order_by(Reply.created_at).limit(limit).offset(offset)
 
-    result = await db.execute(
-        select(Reply)
-        .where(
-            Reply.post_id == post_id,
-            Reply.status == ContentStatus.active,
-        )
-        .order_by(Reply.created_at.asc())
+    if status:
+        stmt = stmt.where(Reply.status == status)
+
+    result = await db.execute(stmt)
+    replies = result.scalars().all()
+
+    if load_children:
+        # Populate children recursively
+        for reply in replies:
+            reply.children = await _load_children(db, reply.id, status)
+
+    else:
+        # Lazy loading: children=None
+        for reply in replies:
+            reply.children = None
+
+    return replies
+
+async def _load_children(
+    db: AsyncSession,
+    parent_id: str,
+    status: Optional[ContentStatus] = ContentStatus.active,
+    limit: int = 20,
+    offset: int = 0,
+) -> List[Reply]:
+    """
+    Recursively load children for a parent reply.
+    Pagination applied at each level.
+    """
+
+    stmt = select(Reply).where(
+        Reply.parent_reply_id == parent_id
+    ).order_by(Reply.created_at).limit(limit).offset(offset)
+
+    if status:
+        stmt = stmt.where(Reply.status == status)
+
+    result = await db.execute(stmt)
+    children = result.scalars().all()
+
+    for child in children:
+        # Recursively load grandchildren if needed
+        child.children = await _load_children(db, child.id, status, limit, offset)
+
+    return children
+
+async def get_reply_children(
+    db: AsyncSession,
+    parent_reply_id: UUID,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    status: ContentStatus = ContentStatus.active,
+) -> List[Reply]:
+    """
+    Fetch direct children of a given reply with pagination.
+    """
+    # Fetch only direct children
+    return await get_replies_for_post(
+        db,
+        post_id=None,  # post_id not needed, filtering by parent_reply_id
+        limit=limit,
+        offset=offset,
+        status=status,
+        load_children=False,  # only fetch one level
     )
 
-    return result.scalars().all()
+async def get_children_for_reply(
+    db: AsyncSession,
+    parent_reply_id: UUID,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    status: Optional[ContentStatus] = ContentStatus.active,
+) -> List[Reply]:
+    stmt = select(Reply).where(Reply.parent_reply_id == parent_reply_id)
+    if status:
+        stmt = stmt.where(Reply.status == status)
+    stmt = stmt.order_by(Reply.created_at).limit(limit).offset(offset)
+
+    result = await db.execute(stmt)
+    children = result.scalars().all()
+
+    for child in children:
+        child.children = None  # lazy
+    return children
+

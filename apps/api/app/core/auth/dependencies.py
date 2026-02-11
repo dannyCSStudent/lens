@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
@@ -9,20 +9,22 @@ from sqlalchemy import select
 
 async def get_current_user(
     db: AsyncSession = Depends(get_db),
+    x_user_id: UUID | None = Header(default=None),
 ) -> User:
-    """
-    TEMP: always returns the first user.
-    Replace with real auth later.
-    """
-    result = await db.execute(
-        select(User).limit(1)
-    )
+    if x_user_id:
+        result = await db.execute(
+            select(User).where(User.id == x_user_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid user")
+        return user
+
+    # fallback (old behavior)
+    result = await db.execute(select(User).limit(1))
     user = result.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="No users exist (auth stub)",
-        )
+        raise HTTPException(status_code=401, detail="No users exist")
 
     return user

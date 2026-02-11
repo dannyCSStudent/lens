@@ -13,7 +13,7 @@ async def get_posts(
 ):
     stmt = (
         select(Post)
-        .where(Post.status == "active")
+        .where(Post.status == ContentStatus.active)
         .order_by(Post.created_at.desc())
         .limit(limit)
         .offset(offset)
