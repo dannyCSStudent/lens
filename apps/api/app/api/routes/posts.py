@@ -25,6 +25,19 @@ async def list_posts(
     return await get_posts(db, limit=limit, offset=offset)
 
 
+@router.get("/posts")
+async def list_posts(
+    mode: str = "latest",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await get_posts(
+        db,
+        current_user_id=current_user.id,
+        mode=mode,
+    )
+
+
 @router.post("", response_model=PostRead)
 async def create_post(
     data: PostCreate,

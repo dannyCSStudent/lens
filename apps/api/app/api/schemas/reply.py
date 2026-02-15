@@ -21,6 +21,8 @@ class ReplyRead(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
+    like_count: int 
+
     # children are optional, only populated when requested
     children: Optional[List["ReplyRead"]] = None
 

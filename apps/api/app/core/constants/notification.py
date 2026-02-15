@@ -5,6 +5,7 @@ class NotificationType:
     MENTION = "mention"
     FOLLOW = "follow"
     SYSTEM = "system"
+    REPLY_LIKE = "reply_like"
 
     # moderation / system events
     CONTENT_MODERATED = "content_moderated"

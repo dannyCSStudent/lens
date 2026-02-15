@@ -9,6 +9,9 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from app.core.constants.notification import NotificationType
 from app.services.mention_service import extract_mentioned_user_ids
+from sqlalchemy import func
+from app.core.models.reply_like import ReplyLike
+
 
 
 async def create_reply(
@@ -112,36 +115,44 @@ async def create_reply(
 
 async def get_replies_for_post(
     db: AsyncSession,
-    post_id: str,
+    post_id: UUID,
     *,
     status: Optional[ContentStatus] = ContentStatus.active,
     limit: int = 20,
     offset: int = 0,
     load_children: bool = False,
 ) -> List[Reply]:
-    """
-    Fetch top-level replies for a post.
-    If load_children=True, recursively fetch children.
-    """
-
-    stmt = select(Reply).where(
-        Reply.post_id == post_id,
-        Reply.parent_reply_id == None  # top-level only
-    ).order_by(Reply.created_at).limit(limit).offset(offset)
+    stmt = (
+        select(
+            Reply,
+            func.count(ReplyLike.id).label("like_count")
+        )
+        .outerjoin(ReplyLike, ReplyLike.reply_id == Reply.id)
+        .where(
+            Reply.post_id == post_id,
+            Reply.parent_reply_id == None
+        )
+        .group_by(Reply.id)
+        .order_by(Reply.created_at)
+        .limit(limit)
+        .offset(offset)
+    )
 
     if status:
         stmt = stmt.where(Reply.status == status)
 
     result = await db.execute(stmt)
-    replies = result.scalars().all()
+    rows = result.all()
+
+    replies = []
+    for reply, like_count in rows:
+        reply.like_count = like_count
+        replies.append(reply)
 
     if load_children:
-        # Populate children recursively
         for reply in replies:
             reply.children = await _load_children(db, reply.id, status)
-
     else:
-        # Lazy loading: children=None
         for reply in replies:
             reply.children = None
 
@@ -149,28 +160,37 @@ async def get_replies_for_post(
 
 async def _load_children(
     db: AsyncSession,
-    parent_id: str,
+    parent_id: UUID,
     status: Optional[ContentStatus] = ContentStatus.active,
     limit: int = 20,
     offset: int = 0,
 ) -> List[Reply]:
-    """
-    Recursively load children for a parent reply.
-    Pagination applied at each level.
-    """
 
-    stmt = select(Reply).where(
-        Reply.parent_reply_id == parent_id
-    ).order_by(Reply.created_at).limit(limit).offset(offset)
+    stmt = (
+        select(
+            Reply,
+            func.count(ReplyLike.id).label("like_count")
+        )
+        .outerjoin(ReplyLike, ReplyLike.reply_id == Reply.id)
+        .where(Reply.parent_reply_id == parent_id)
+        .group_by(Reply.id)
+        .order_by(Reply.created_at)
+        .limit(limit)
+        .offset(offset)
+    )
 
     if status:
         stmt = stmt.where(Reply.status == status)
 
     result = await db.execute(stmt)
-    children = result.scalars().all()
+    rows = result.all()
+
+    children = []
+    for child, like_count in rows:
+        child.like_count = like_count
+        children.append(child)
 
     for child in children:
-        # Recursively load grandchildren if needed
         child.children = await _load_children(db, child.id, status, limit, offset)
 
     return children
@@ -204,15 +224,30 @@ async def get_children_for_reply(
     offset: int = 0,
     status: Optional[ContentStatus] = ContentStatus.active,
 ) -> List[Reply]:
-    stmt = select(Reply).where(Reply.parent_reply_id == parent_reply_id)
+
+    stmt = (
+        select(
+            Reply,
+            func.count(ReplyLike.id).label("like_count")
+        )
+        .outerjoin(ReplyLike, ReplyLike.reply_id == Reply.id)
+        .where(Reply.parent_reply_id == parent_reply_id)
+        .group_by(Reply.id)
+        .order_by(Reply.created_at)
+        .limit(limit)
+        .offset(offset)
+    )
+
     if status:
         stmt = stmt.where(Reply.status == status)
-    stmt = stmt.order_by(Reply.created_at).limit(limit).offset(offset)
 
     result = await db.execute(stmt)
-    children = result.scalars().all()
+    rows = result.all()
 
-    for child in children:
-        child.children = None  # lazy
+    children = []
+    for child, like_count in rows:
+        child.like_count = like_count
+        child.children = None
+        children.append(child)
+
     return children
-

@@ -23,6 +23,8 @@ class PostCreate(PostBase):
 
 
 # ---- Read ----
+from typing import Optional
+
 class PostRead(PostBase):
     id: UUID
     author_id: UUID
@@ -30,5 +32,10 @@ class PostRead(PostBase):
     created_at: datetime
     updated_at: datetime
 
+    like_count: Optional[int] = 0
+    reply_count: Optional[int] = 0
+    liked_by_current_user: Optional[bool] = False
+
     class Config:
         from_attributes = True
+
