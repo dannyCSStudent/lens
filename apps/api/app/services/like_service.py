@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
-from app.core.models.post_like import PostLike
+from app.core.models.post_likes import PostLike
 from app.core.models.reply_like import ReplyLike
 from app.core.models.post import Post
 from app.core.models.reply import Reply

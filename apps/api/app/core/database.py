@@ -10,7 +10,7 @@ DATABASE_URL = os.getenv(
 
 engine = create_async_engine(
     DATABASE_URL,
-    echo=False,
+    echo=True,
     future=True,
 )
 

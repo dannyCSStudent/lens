@@ -7,5 +7,5 @@ from .reply import Reply
 from .moderation import ModerationAction
 from .report import Report
 from .notification import Notification
-from .post_like import PostLike
+from .post_likes import PostLike
 from .reply_like import ReplyLike
