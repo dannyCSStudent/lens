@@ -2,7 +2,7 @@ from uuid import uuid4
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy import DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.sql import func
 
 from app.core.models.base import Base
@@ -12,7 +12,8 @@ class ReplyLike(Base):
     __tablename__ = "reply_likes"
 
     __table_args__ = (
-        UniqueConstraint("reply_id", "user_id", name="uq_reply_like"),
+        UniqueConstraint("reply_id", "user_id", name="uq_reply_like_user"),
+        Index("idx_reply_likes_reply_created", "reply_id", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(

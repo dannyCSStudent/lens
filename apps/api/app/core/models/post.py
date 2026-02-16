@@ -1,16 +1,21 @@
 import uuid
-from sqlalchemy import Text, Enum, ForeignKey, TIMESTAMP, text
+from sqlalchemy import Text, ForeignKey, TIMESTAMP, text, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column
-from app.core.enums import ContentStatus
-from app.core.models.base import Base
 from sqlalchemy import Enum as SQLEnum
 
 from app.core.enums import PostType, ContentStatus
+from app.core.models.base import Base
+
 
 class Post(Base):
     __tablename__ = "posts"
+
+    __table_args__ = (
+        # Composite index for feed queries
+        Index("idx_posts_status_created_at", "status", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -24,19 +29,24 @@ class Post(Base):
         index=True
     )
 
-    post_type: Mapped[PostType] = mapped_column(Enum(PostType), index=True)
+    post_type: Mapped[PostType] = mapped_column(
+        SQLEnum(PostType),
+        index=True
+    )
+
     title: Mapped[str] = mapped_column(Text)
     body: Mapped[str] = mapped_column(Text)
 
-    status: Mapped[str] = mapped_column(
-    SQLEnum(ContentStatus, name="contentstatus"),
-    nullable=False,
-    server_default=text("'active'")
-)
+    status: Mapped[ContentStatus] = mapped_column(
+        SQLEnum(ContentStatus, name="contentstatus"),
+        nullable=False,
+        server_default=text("'active'")
+    )
 
     created_at: Mapped[str] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
+        nullable=False,
         index=True
     )
 

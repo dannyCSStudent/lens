@@ -2,7 +2,7 @@ from uuid import uuid4
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy import DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.sql import func
 
 from app.core.models.base import Base
@@ -12,7 +12,9 @@ class PostLike(Base):
     __tablename__ = "post_likes"
 
     __table_args__ = (
-        UniqueConstraint("post_id", "user_id", name="uq_post_like"),
+        UniqueConstraint("post_id", "user_id", name="uq_post_like_user"),
+        # Critical for velocity queries
+        Index("idx_post_likes_post_created", "post_id", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -39,8 +41,4 @@ class PostLike(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
-    )
-
-    __table_args__ = (
-        UniqueConstraint("post_id", "user_id", name="uq_post_like_user"),
     )

@@ -1,4 +1,4 @@
-from sqlalchemy import select, func, case, extract
+from sqlalchemy import select, func, extract, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from typing import Optional
@@ -17,7 +17,9 @@ async def get_posts(
     offset: int = 0,
     mode: str = "latest",
 ):
-    # Like count
+    # -------------------------
+    # Total Like Count
+    # -------------------------
     like_count_subq = (
         select(func.count(PostLike.id))
         .where(PostLike.post_id == Post.id)
@@ -25,7 +27,9 @@ async def get_posts(
         .scalar_subquery()
     )
 
-    # Reply count
+    # -------------------------
+    # Total Reply Count
+    # -------------------------
     reply_count_subq = (
         select(func.count(Reply.id))
         .where(Reply.post_id == Post.id)
@@ -33,25 +37,63 @@ async def get_posts(
         .scalar_subquery()
     )
 
-    # Engagement score
-    engagement_score = (
-        (like_count_subq * 2) +
-        (reply_count_subq * 3)
+    # -------------------------
+    # Logarithmic Engagement
+    # -------------------------
+    engagement_score = func.log(
+        (like_count_subq * 2) + (reply_count_subq * 3) + 1
     )
 
-    # Hours since posted
+    # -------------------------
+    # Hours Since Posted
+    # -------------------------
     hours_since_posted = (
-        extract("epoch", func.now() - Post.created_at) / 3600
+        func.extract("epoch", func.now() - Post.created_at) / 3600
     )
 
-    # Time-decay trending score
+    # -------------------------
+    # Base Trending Score (decayed)
+    # -------------------------
+    base_trending_score = (
+        engagement_score /
+        func.pow(hours_since_posted + 2, 1.5)
+    )
+
+    # -------------------------
+    # Engagement Velocity (last 3 hours)
+    # -------------------------
+    recent_likes_subq = (
+        select(func.count(PostLike.id))
+        .where(
+            PostLike.post_id == Post.id,
+            PostLike.created_at >= func.now() - text("interval '3 hours'")
+        )
+        .correlate(Post)
+        .scalar_subquery()
+    )
+
+    recent_replies_subq = (
+        select(func.count(Reply.id))
+        .where(
+            Reply.post_id == Post.id,
+            Reply.created_at >= func.now() - text("interval '3 hours'")
+        )
+        .correlate(Post)
+        .scalar_subquery()
+    )
+
+    velocity_score = (recent_likes_subq * 3) + (recent_replies_subq * 4)
+
+    # -------------------------
+    # Final Trending Score
+    # -------------------------
     trending_score = (
-        engagement_score / (hours_since_posted + 2)
+        base_trending_score + (velocity_score * 0.5)
     ).label("trending_score")
 
-
-
-    # Liked by current user
+    # -------------------------
+    # Liked by Current User
+    # -------------------------
     if current_user_id:
         liked_subq = (
             select(PostLike.id)
@@ -65,6 +107,9 @@ async def get_posts(
     else:
         liked_subq = None
 
+    # -------------------------
+    # Columns
+    # -------------------------
     columns = [
         Post,
         like_count_subq.label("like_count"),
@@ -75,7 +120,9 @@ async def get_posts(
     if liked_subq is not None:
         columns.append(liked_subq.label("liked_by_current_user"))
 
-    # Correct ordering
+    # -------------------------
+    # Ordering
+    # -------------------------
     if mode == "trending":
         order_clause = trending_score.desc()
     else:
@@ -84,7 +131,7 @@ async def get_posts(
     stmt = (
         select(*columns)
         .where(Post.status == ContentStatus.active)
-        .order_by(order_clause)   # ✅ FIXED
+        .order_by(order_clause)
         .limit(limit)
         .offset(offset)
     )
@@ -109,6 +156,7 @@ async def get_posts(
         posts.append(post)
 
     return posts
+
 
 async def get_post_by_id(
     db: AsyncSession,

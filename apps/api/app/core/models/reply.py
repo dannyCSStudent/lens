@@ -1,5 +1,4 @@
-# models/reply.py
-from sqlalchemy import ForeignKey, Text, DateTime, func
+from sqlalchemy import ForeignKey, Text, DateTime, func, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 from uuid import UUID as PyUUID
@@ -11,6 +10,11 @@ from app.core.models.base import Base
 class Reply(Base):
     __tablename__ = "replies"
 
+    __table_args__ = (
+        # Critical for reply velocity + post counts
+        Index("idx_replies_post_created", "post_id", "created_at"),
+    )
+
     id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
@@ -19,6 +23,7 @@ class Reply(Base):
 
     post_id: Mapped[PyUUID] = mapped_column(
         ForeignKey("posts.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
 
