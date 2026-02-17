@@ -7,6 +7,9 @@ from app.core.enums import ContentStatus
 from app.core.models.post import Post
 from app.core.models.post_likes import PostLike
 from app.core.models.reply import Reply
+from app.core.models.user import User
+from app.core.enums import FeedMode
+
 
 
 from sqlalchemy import select, func, extract, text, case, literal
@@ -18,26 +21,26 @@ async def get_posts(
     current_user_id: Optional[UUID] = None,
     limit: int = 20,
     offset: int = 0,
-    mode: str = "latest",
-):
+    mode: FeedMode = FeedMode.latest
 
-    # -------------------------
-    # Base joins
-    # -------------------------
-    stmt = (
-        select(
-            Post,
-            func.count(func.distinct(PostLike.id)).label("like_count"),
-            func.count(func.distinct(Reply.id)).label("reply_count"),
-        )
-        .outerjoin(PostLike, PostLike.post_id == Post.id)
-        .outerjoin(Reply, Reply.post_id == Post.id)
-        .where(Post.status == ContentStatus.active)
-        .group_by(Post.id)
-    )
+):
 
     like_count = func.count(func.distinct(PostLike.id))
     reply_count = func.count(func.distinct(Reply.id))
+
+    stmt = (
+        select(
+            Post,
+            User,
+            like_count.label("like_count"),
+            reply_count.label("reply_count"),
+        )
+        .join(User, User.id == Post.author_id)
+        .outerjoin(PostLike, PostLike.post_id == Post.id)
+        .outerjoin(Reply, Reply.post_id == Post.id)
+        .where(Post.status == ContentStatus.active)
+        .group_by(Post.id, User.id)
+    )
 
     # -------------------------
     # Trending calculation
@@ -52,10 +55,9 @@ async def get_posts(
 
     base_trending_score = (
         engagement_score /
-        func.pow(hours_since_posted + 2, 1.5)
+        func.pow(hours_since_posted + 2, 1.1)
     )
 
-    # Use FILTER instead of CASE
     recent_likes = func.count(func.distinct(PostLike.id)).filter(
         PostLike.created_at >= func.now() - text("interval '3 hours'")
     )
@@ -99,11 +101,14 @@ async def get_posts(
 
     for row in rows:
         if current_user_id:
-            post, like_count_val, reply_count_val, trending_score_val, liked_by_current_user = row
+            post, user, like_count_val, reply_count_val, trending_score_val, liked_by_current_user = row
             post.liked_by_current_user = liked_by_current_user or False
         else:
-            post, like_count_val, reply_count_val, trending_score_val = row
+            post, user, like_count_val, reply_count_val, trending_score_val = row
             post.liked_by_current_user = False
+
+        # Attach author relationship manually
+        post.author = user
 
         post.like_count = like_count_val or 0
         post.reply_count = reply_count_val or 0
@@ -148,20 +153,24 @@ async def get_post_by_id(
 
     columns = [
         Post,
+        User,
         like_count_subq.label("like_count"),
         reply_count_subq.label("reply_count"),
     ]
+
 
     if liked_subq is not None:
         columns.append(liked_subq.label("liked_by_current_user"))
 
     stmt = (
         select(*columns)
+        .join(User, User.id == Post.author_id)
         .where(
             Post.id == post_id,
             Post.status == ContentStatus.active,
         )
     )
+
 
     result = await db.execute(stmt)
     row = result.first()
@@ -170,11 +179,14 @@ async def get_post_by_id(
         return None
 
     if current_user_id:
-        post, like_count, reply_count, liked_by_current_user = row
+        post, user, like_count, reply_count, liked_by_current_user = row
         post.liked_by_current_user = liked_by_current_user
     else:
-        post, like_count, reply_count = row
+        post, user, like_count, reply_count = row
         post.liked_by_current_user = False
+
+    post.author = user
+
 
     post.like_count = like_count or 0
     post.reply_count = reply_count or 0

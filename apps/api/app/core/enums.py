@@ -20,3 +20,7 @@ class ContentStatus(str, Enum):
 class UserStatus(str, Enum):
     ACTIVE = "active"
     SUSPENDED = "suspended"
+
+class FeedMode(str, Enum):
+    latest = "latest"
+    trending = "trending"
