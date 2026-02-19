@@ -9,9 +9,8 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from app.core.constants.notification import NotificationType
 from app.services.mention_service import extract_mentioned_user_ids
-from sqlalchemy import func
+from sqlalchemy import func, update
 from app.core.models.reply_like import ReplyLike
-
 
 
 async def create_reply(
@@ -56,12 +55,22 @@ async def create_reply(
     )
 
     db.add(reply)
+
+    # 🔥 Atomic increment of reply_count
+    await db.execute(
+        update(Post)
+        .where(Post.id == post_id)
+        .values(reply_count=Post.reply_count + 1)
+    )
+
     await db.commit()
     await db.refresh(reply)
 
     # -----------------------------
-    # 🔔 Reply → Post author
+    # 🔔 Notifications
     # -----------------------------
+
+    # Reply → Post author
     if parent_reply_id is None:
         if post.author_id != author_id:
             await create_notification(
@@ -75,9 +84,7 @@ async def create_reply(
                 },
             )
 
-    # -----------------------------
-    # 🔔 Reply → Reply author
-    # -----------------------------
+    # Reply → Reply author
     if parent_reply and parent_reply.author_id != author_id:
         await create_notification(
             db,
@@ -91,9 +98,7 @@ async def create_reply(
             },
         )
 
-    # -----------------------------
-    # 🔔 Mentions (@username)
-    # -----------------------------
+    # Mentions
     mentioned_user_ids = await extract_mentioned_user_ids(db, body)
 
     for mentioned_user_id in mentioned_user_ids:

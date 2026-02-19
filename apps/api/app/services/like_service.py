@@ -1,6 +1,6 @@
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.models.post_likes import PostLike
@@ -23,13 +23,24 @@ async def like_post(db: AsyncSession, *, post_id: UUID, user_id: UUID):
     db.add(like)
 
     try:
+        # Flush first to trigger unique constraint
+        await db.flush()
+
+        # 🔥 Atomic increment (safe under concurrency)
+        await db.execute(
+            update(Post)
+            .where(Post.id == post_id)
+            .values(like_count=Post.like_count + 1)
+        )
+
         await db.commit()
         created = True
+
     except IntegrityError:
         await db.rollback()
         created = False  # already liked
 
-    # Only notify if it was actually newly created
+    # 🔔 Notify only if newly created
     if created and post.author_id != user_id:
         await create_notification(
             db,
@@ -48,15 +59,31 @@ async def like_post(db: AsyncSession, *, post_id: UUID, user_id: UUID):
 # Unlike Post
 # ---------------------
 async def unlike_post(db: AsyncSession, *, post_id: UUID, user_id: UUID):
-    stmt = delete(PostLike).where(
-        PostLike.post_id == post_id,
-        PostLike.user_id == user_id,
+    stmt = (
+        delete(PostLike)
+        .where(
+            PostLike.post_id == post_id,
+            PostLike.user_id == user_id,
+        )
+        .returning(PostLike.id)
     )
 
     result = await db.execute(stmt)
-    await db.commit()
+    deleted = result.first()
 
-    return result.rowcount > 0
+    if deleted:
+        # 🔥 Atomic decrement (prevents race issues)
+        await db.execute(
+            update(Post)
+            .where(Post.id == post_id, Post.like_count > 0)
+            .values(like_count=Post.like_count - 1)
+        )
+
+        await db.commit()
+        return True
+
+    await db.commit()
+    return False
 
 
 # ---------------------
@@ -71,8 +98,18 @@ async def like_reply(db: AsyncSession, *, reply_id: UUID, user_id: UUID):
     db.add(like)
 
     try:
+        await db.flush()
+
+        # 🔥 Atomic increment
+        await db.execute(
+            update(Reply)
+            .where(Reply.id == reply_id)
+            .values(like_count=Reply.like_count + 1)
+        )
+
         await db.commit()
         created = True
+
     except IntegrityError:
         await db.rollback()
         created = False
@@ -95,12 +132,27 @@ async def like_reply(db: AsyncSession, *, reply_id: UUID, user_id: UUID):
 # Unlike Reply
 # ---------------------
 async def unlike_reply(db: AsyncSession, *, reply_id: UUID, user_id: UUID):
-    stmt = delete(ReplyLike).where(
-        ReplyLike.reply_id == reply_id,
-        ReplyLike.user_id == user_id,
+    stmt = (
+        delete(ReplyLike)
+        .where(
+            ReplyLike.reply_id == reply_id,
+            ReplyLike.user_id == user_id,
+        )
+        .returning(ReplyLike.id)
     )
 
     result = await db.execute(stmt)
-    await db.commit()
+    deleted = result.first()
 
-    return result.rowcount > 0
+    if deleted:
+        await db.execute(
+            update(Reply)
+            .where(Reply.id == reply_id, Reply.like_count > 0)
+            .values(like_count=Reply.like_count - 1)
+        )
+
+        await db.commit()
+        return True
+
+    await db.commit()
+    return False

@@ -1,75 +1,50 @@
-from sqlalchemy import select, func, extract, text
-from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
-from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import ContentStatus
 from app.core.models.post import Post
+from app.core.models.user import User
 from app.core.models.post_likes import PostLike
 from app.core.models.reply import Reply
-from app.core.models.user import User
-from app.core.enums import FeedMode
+from app.core.enums import FeedMode, ContentStatus
+
+from sqlalchemy import select, func, extract, or_, and_
+from typing import Optional
+from datetime import datetime
 
 
 
-from sqlalchemy import select, func, extract, text, case, literal
 
-
-async def get_posts(
+async def get_feed(
     db: AsyncSession,
     *,
     current_user_id: Optional[UUID] = None,
     limit: int = 20,
-    offset: int = 0,
-    mode: FeedMode = FeedMode.latest
-
+    cursor: Optional[str] = None,
+    mode: FeedMode = FeedMode.latest,
 ):
-
-    like_count = func.count(func.distinct(PostLike.id))
-    reply_count = func.count(func.distinct(Reply.id))
-
     stmt = (
-        select(
-            Post,
-            User,
-            like_count.label("like_count"),
-            reply_count.label("reply_count"),
-        )
+        select(Post, User)
         .join(User, User.id == Post.author_id)
-        .outerjoin(PostLike, PostLike.post_id == Post.id)
-        .outerjoin(Reply, Reply.post_id == Post.id)
         .where(Post.status == ContentStatus.active)
-        .group_by(Post.id, User.id)
     )
 
     # -------------------------
     # Trending calculation
     # -------------------------
+
     engagement_score = func.log(
-        (like_count * 2) + (reply_count * 3) + 1
+        (Post.like_count * 2)
+        + (Post.reply_count * 3)
+        + 1
     )
 
     hours_since_posted = (
         extract("epoch", func.now() - Post.created_at) / 3600
     )
 
-    base_trending_score = (
+    trending_score = (
         engagement_score /
         func.pow(hours_since_posted + 2, 1.1)
-    )
-
-    recent_likes = func.count(func.distinct(PostLike.id)).filter(
-        PostLike.created_at >= func.now() - text("interval '3 hours'")
-    )
-
-    recent_replies = func.count(func.distinct(Reply.id)).filter(
-        Reply.created_at >= func.now() - text("interval '3 hours'")
-    )
-
-    velocity_score = (recent_likes * 3) + (recent_replies * 4)
-
-    trending_score = (
-        base_trending_score + (velocity_score * 0.5)
     ).label("trending_score")
 
     stmt = stmt.add_columns(trending_score)
@@ -77,22 +52,51 @@ async def get_posts(
     # -------------------------
     # liked_by_current_user
     # -------------------------
+
     if current_user_id:
-        liked_flag = func.bool_or(
-            PostLike.user_id == current_user_id
+        liked_exists = (
+            select(1)
+            .where(
+                PostLike.post_id == Post.id,
+                PostLike.user_id == current_user_id,
+            )
+            .exists()
         ).label("liked_by_current_user")
 
-        stmt = stmt.add_columns(liked_flag)
+        stmt = stmt.add_columns(liked_exists)
 
     # -------------------------
-    # Ordering
+    # Cursor filtering (LATEST ONLY)
     # -------------------------
-    if mode == "trending":
+
+    if mode == FeedMode.latest:
+        stmt = stmt.order_by(
+            Post.created_at.desc(),
+            Post.id.desc(),
+        )
+
+        if cursor:
+            cursor_created_at_str, cursor_id = cursor.split("|")
+            cursor_created_at = datetime.fromisoformat(
+                cursor_created_at_str
+            )
+
+            stmt = stmt.where(
+                or_(
+                    Post.created_at < cursor_created_at,
+                    and_(
+                        Post.created_at == cursor_created_at,
+                        Post.id < cursor_id,
+                    ),
+                )
+            )
+
+    elif mode == FeedMode.trending:
         stmt = stmt.order_by(trending_score.desc())
-    else:
-        stmt = stmt.order_by(Post.created_at.desc())
 
-    stmt = stmt.limit(limit).offset(offset)
+        # Optional: you can later build cursor pagination for trending too
+
+    stmt = stmt.limit(limit)
 
     result = await db.execute(stmt)
     rows = result.all()
@@ -101,22 +105,30 @@ async def get_posts(
 
     for row in rows:
         if current_user_id:
-            post, user, like_count_val, reply_count_val, trending_score_val, liked_by_current_user = row
-            post.liked_by_current_user = liked_by_current_user or False
+            post, user, trending_score_val, liked_val = row
+            post.liked_by_current_user = liked_val or False
         else:
-            post, user, like_count_val, reply_count_val, trending_score_val = row
+            post, user, trending_score_val = row
             post.liked_by_current_user = False
 
-        # Attach author relationship manually
         post.author = user
-
-        post.like_count = like_count_val or 0
-        post.reply_count = reply_count_val or 0
         post.trending_score = trending_score_val or 0
 
         posts.append(post)
 
-    return posts
+    # -------------------------
+    # Generate next cursor
+    # -------------------------
+
+    next_cursor = None
+
+    if posts and mode == FeedMode.latest:
+        last_post = posts[-1]
+        next_cursor = (
+            f"{last_post.created_at.isoformat()}|{last_post.id}"
+        )
+
+    return posts, next_cursor
 
 
 async def get_post_by_id(

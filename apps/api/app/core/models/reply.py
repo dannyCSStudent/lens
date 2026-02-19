@@ -1,4 +1,12 @@
-from sqlalchemy import ForeignKey, Text, DateTime, func, Index
+from sqlalchemy import (
+    ForeignKey,
+    Text,
+    DateTime,
+    func,
+    Index,
+    CheckConstraint,
+    Integer,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 from uuid import UUID as PyUUID
@@ -13,6 +21,9 @@ class Reply(Base):
     __table_args__ = (
         # Critical for reply velocity + post counts
         Index("idx_replies_post_created", "post_id", "created_at"),
+
+        # ✅ DB-level protection
+        CheckConstraint("like_count >= 0", name="replies_like_count_non_negative"),
     )
 
     id: Mapped[PyUUID] = mapped_column(
@@ -40,10 +51,20 @@ class Reply(Base):
 
     body: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # -----------------------------
+    # Engagement Counters
+    # -----------------------------
+
+    like_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=sa.text("0"),
+    )
+
     status: Mapped[str] = mapped_column(
         sa.Enum("active", "removed_illegal", name="reply_status"),
         nullable=False,
-        server_default="active",
+        server_default=sa.text("'active'"),
     )
 
     created_at: Mapped[sa.DateTime] = mapped_column(

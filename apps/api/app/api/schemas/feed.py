@@ -22,4 +22,7 @@ class PostCard(BaseModel):
     confidence_state: str
     status: ContentStatus
     trending_score: float
+    has_liked: bool = False
+    like_count: int
+    reply_count: int
 
