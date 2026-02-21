@@ -2,35 +2,34 @@
 
 import { useState } from "react";
 
-export default function Login() {
+export default function Signup() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
-  async function handleLogin(e: React.FormEvent) {
-  e.preventDefault();
+  async function handleSignup(e: React.FormEvent) {
+    e.preventDefault();
 
-  const res = await fetch("http://localhost:8000/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
+    const res = await fetch("http://localhost:8000/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
 
-  if (!res.ok) {
-    alert("Invalid username or password");
-    return;
+    if (!res.ok) {
+      alert("Signup failed");
+      return;
+    }
+
+    const data = await res.json();
+
+    localStorage.setItem("access_token", data.access_token);
+
+    window.location.href = "/";
   }
-
-  const data = await res.json();
-
-  localStorage.setItem("access_token", data.access_token);
-
-  window.location.href = "/";
-}
-
 
   return (
     <main className="flex items-center justify-center h-screen">
-      <form onSubmit={handleLogin} className="space-y-4">
+      <form onSubmit={handleSignup} className="space-y-4">
         <input
           placeholder="Username"
           value={username}
@@ -45,7 +44,7 @@ export default function Login() {
           className="border p-2"
         />
         <button className="bg-black text-white px-4 py-2">
-          Login
+          Sign Up
         </button>
       </form>
     </main>

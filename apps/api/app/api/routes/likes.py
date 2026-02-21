@@ -24,6 +24,7 @@ async def like_post_route(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    print("Authenticated user:", user.id)
     try:
         created = await like_post(db, post_id=post_id, user_id=user.id)
         return {"ok": True, "liked": True, "created": created}

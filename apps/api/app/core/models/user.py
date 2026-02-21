@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, Enum, Text, TIMESTAMP
+from sqlalchemy import Integer, String, Boolean, Enum, Text, TIMESTAMP
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column
@@ -69,4 +69,23 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
+
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+
+    locked_until: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )
+
+    is_verified: Mapped[bool] = mapped_column(
+    Boolean,
+    default=False,
+    nullable=False,
+)
+
+
 

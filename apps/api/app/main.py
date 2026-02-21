@@ -1,6 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import posts, admin_moderation, notifications, replies, likes
+from app.api.routes import (
+    posts, 
+    admin_moderation, 
+    notifications, 
+    replies, 
+    likes,
+    auth
+)
 
 app = FastAPI(
     title="Lens API",
@@ -26,6 +33,7 @@ app.include_router(replies.router)
 app.include_router(admin_moderation.router)
 app.include_router(notifications.router)
 app.include_router(likes.router)
+app.include_router(auth.router)
 
 
 # ---- Health check ----

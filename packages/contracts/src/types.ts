@@ -19,10 +19,16 @@ export interface PostCard {
   title: string;
   author: UserPublic;
   created_at: string;
+
   evidence_count: number;
   confidence_state: ConfidenceState;
   status: ContentStatus;
+
+  // 🔥 Add engagement fields
+  like_count: number;
+  viewer_has_liked: boolean;
 }
+
 
 export interface PostDetail extends PostCard {
   body: string;
