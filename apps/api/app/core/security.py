@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 import os
 import hashlib
+import secrets
 
 # --------------------------------------------------
 # Load Environment Variables
@@ -87,3 +88,7 @@ def decode_token(token: str):
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def generate_reset_token() -> str:
+    return secrets.token_urlsafe(32)

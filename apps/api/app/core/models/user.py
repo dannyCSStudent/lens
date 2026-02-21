@@ -82,10 +82,17 @@ class User(Base):
     )
 
     is_verified: Mapped[bool] = mapped_column(
-    Boolean,
-    default=False,
-    nullable=False,
-)
+        Boolean,
+        default=False,
+        nullable=False,
+    )
 
-
-
+    password_reset_token_hash: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+    
+    password_reset_expires: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )

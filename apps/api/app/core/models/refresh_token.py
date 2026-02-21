@@ -41,3 +41,17 @@ class RefreshToken(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+    device_name: Mapped[str] = mapped_column(String, nullable=True)
+    ip_address: Mapped[str] = mapped_column(String, nullable=True)
+    user_agent: Mapped[str] = mapped_column(String, nullable=True)
+
+    last_used_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )
+
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+    )
