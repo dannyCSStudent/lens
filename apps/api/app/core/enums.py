@@ -24,3 +24,14 @@ class UserStatus(str, Enum):
 class FeedMode(str, Enum):
     latest = "latest"
     trending = "trending"
+
+
+class SecurityEventType(str, Enum):
+    login_success = "login_success"
+    login_failed = "login_failed"
+    account_locked = "account_locked"
+    password_reset_requested = "password_reset_requested"
+    password_reset_completed = "password_reset_completed"
+    refresh_reuse_detected = "refresh_reuse_detected"
+    session_revoked = "session_revoked"
+    logout = "logout"

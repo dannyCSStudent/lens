@@ -10,3 +10,5 @@ from .notification import Notification
 from .post_likes import PostLike
 from .reply_like import ReplyLike
 from .refresh_token import RefreshToken
+from .security_event import SecurityEvent
+from .email_verification_token import EmailVerificationToken

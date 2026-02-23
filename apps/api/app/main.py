@@ -11,7 +11,8 @@ from app.api.routes import (
     notifications, 
     replies, 
     likes,
-    auth
+    auth,
+    admin_security
 )
 
 app = FastAPI(
@@ -43,6 +44,7 @@ app.include_router(admin_moderation.router)
 app.include_router(notifications.router)
 app.include_router(likes.router)
 app.include_router(auth.router)
+app.include_router(admin_security.router)
 
 
 # ---- Health check ----
