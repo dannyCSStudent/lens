@@ -1,24 +1,24 @@
-from fastapi import Depends, HTTPException, Header
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Cookie
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from jose import jwt, JWTError
 from uuid import UUID
-from typing import Optional
 from app.core.database import get_db
 from app.core.models.user import User
 from app.core.security import SECRET_KEY, ALGORITHM
-
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+from datetime import datetime, timezone
 
 
 async def get_current_user(
     db: AsyncSession = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
+    access_token: str | None = Cookie(default=None),
 ) -> User:
+
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(access_token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str | None = payload.get("sub")
 
         if user_id is None:
@@ -44,8 +44,8 @@ async def get_current_user(
             detail="Email not verified"
         )
 
-    # 🔒 Optional (if you have lockout fields)
-    if user.account_locked:
+    # 🔒 Lockout check (if using locked_until)
+    if user.locked_until and user.locked_until > datetime.now(timezone.utc):
         raise HTTPException(
             status_code=403,
             detail="Account locked"
@@ -53,25 +53,28 @@ async def get_current_user(
 
     return user
 
+
 async def get_optional_user(
-    authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    access_token: str | None = Cookie(default=None),
 ) -> User | None:
-    if not authorization:
+
+    if not access_token:
         return None
 
     try:
-        scheme, token = authorization.split()
-        if scheme.lower() != "bearer":
-            return None
-
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(access_token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
+
         if not user_id:
             return None
 
-        user = await db.get(User, user_id)
-        return user
+        user_uuid = UUID(user_id)
+
+        result = await db.execute(
+            select(User).where(User.id == user_uuid)
+        )
+        return result.scalar_one_or_none()
 
     except Exception:
         return None

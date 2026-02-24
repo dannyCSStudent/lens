@@ -65,60 +65,59 @@ export default function Home() {
   }
 
   async function handleToggleLike(postId: string) {
-    const token = localStorage.getItem("access_token");
+  let wasLiked = false;
 
-    if (!token) {
+  // optimistic update
+  setPosts((prev) =>
+    prev.map((post) => {
+      if (post.id !== postId) return post;
+
+      const currentLiked = post.viewer_has_liked ?? false;
+      const currentCount = post.like_count ?? 0;
+
+      wasLiked = currentLiked;
+
+      return {
+        ...post,
+        viewer_has_liked: !currentLiked,
+        like_count: currentLiked
+          ? currentCount - 1
+          : currentCount + 1,
+      };
+    })
+  );
+
+  try {
+    if (wasLiked) {
+      await unlikePost(postId);
+    } else {
+      await likePost(postId);
+    }
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message === "Not authenticated") {
       router.push("/auth");
       return;
     }
 
-    let wasLiked = false;
-
-    // optimistic update
+    // rollback on failure
     setPosts((prev) =>
       prev.map((post) => {
         if (post.id !== postId) return post;
 
-        const currentLiked = post.viewer_has_liked ?? false;
         const currentCount = post.like_count ?? 0;
-
-        wasLiked = currentLiked;
 
         return {
           ...post,
-          viewer_has_liked: !currentLiked,
-          like_count: currentLiked
-            ? currentCount - 1
-            : currentCount + 1,
+          viewer_has_liked: wasLiked,
+          like_count: wasLiked
+            ? currentCount + 1
+            : currentCount - 1,
         };
       })
     );
-
-    try {
-      if (wasLiked) {
-        await unlikePost(postId);
-      } else {
-        await likePost(postId);
-      }
-    } catch {
-      // rollback on failure
-      setPosts((prev) =>
-        prev.map((post) => {
-          if (post.id !== postId) return post;
-
-          const currentCount = post.like_count ?? 0;
-
-          return {
-            ...post,
-            viewer_has_liked: wasLiked,
-            like_count: wasLiked
-              ? currentCount + 1
-              : currentCount - 1,
-          };
-        })
-      );
-    }
   }
+}
+
 
   return (
     <main className="max-w-2xl mx-auto p-6">
@@ -164,14 +163,17 @@ export default function Home() {
         </button>
       )}
       <button
-        onClick={() => {
-          localStorage.removeItem("access_token");
-          window.location.href = "/login";
+        onClick={async () => {
+          await fetch("http://localhost:8000/auth/logout", {
+            method: "POST",
+            credentials: "include",
+          });
+
+          router.push("/auth");
         }}
       >
         Logout
       </button>
-
     </main>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 type Mode = "login" | "signup";
@@ -16,6 +16,21 @@ export default function AuthPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+
+    const timer = setTimeout(() => {
+      setCooldown((prev) => prev - 1);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,6 +52,7 @@ export default function AuthPage() {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // 🔐 REQUIRED
         body: JSON.stringify(payload),
       });
 
@@ -50,26 +66,37 @@ export default function AuthPage() {
               .join(", ")
           );
         } else {
-          setError(data.detail || "Authentication failed");
+          const message = data.detail || "Authentication failed";
+
+          setError(message);
+
+          // Detect unverified email error from backend
+          if (
+            mode === "login" &&
+            typeof message === "string" &&
+            message.toLowerCase().includes("not verified")
+          ) {
+            setNeedsVerification(true);
+          } else {
+            setNeedsVerification(false);
+          }
         }
         return;
       }
 
       // =========================
-      // LOGIN FLOW
+      // LOGIN FLOW (Cookie-Based)
       // =========================
       if (mode === "login") {
-        if (data.access_token && data.refresh_token) {
-          localStorage.setItem("access_token", data.access_token);
-          localStorage.setItem("refresh_token", data.refresh_token);
-
+        if (res.ok) {
           router.push("/");
           return;
         } else {
-          setError("Invalid login response.");
+          setError("Login failed.");
           return;
         }
       }
+
 
       // =========================
       // SIGNUP FLOW
@@ -94,6 +121,36 @@ export default function AuthPage() {
       setLoading(false);
     }
   }
+
+  async function handleResendVerification() {
+    if (!email) return;
+
+    setResendLoading(true);
+
+    try {
+      const res = await fetch(
+        "http://localhost:8000/auth/resend-verification",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        }
+      );
+
+      await res.json();
+
+      setSuccess(
+        "If an account exists, a verification email has been sent."
+      );
+      setCooldown(60); // start 60 second cooldown
+    } catch (err) {
+      console.error(err);
+      setError("Failed to resend verification email.");
+    } finally {
+      setResendLoading(false);
+    }
+  }
+
 
   return (
     <main className="relative flex items-center justify-center min-h-screen bg-black text-white overflow-hidden">
@@ -132,7 +189,25 @@ export default function AuthPage() {
           />
 
           {error && (
-            <div className="text-red-400 text-sm">{error}</div>
+            <div className="text-red-400 text-sm space-y-2">
+              <div>{error}</div>
+
+              {needsVerification && (
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={resendLoading || cooldown > 0}
+                  className="text-purple-400 underline text-sm hover:text-purple-300 disabled:opacity-50"
+                >
+                  {resendLoading
+                    ? "Sending..."
+                    : cooldown > 0
+                    ? `Resend available in ${cooldown}s`
+                    : "Resend verification email"}
+                </button>
+              )}
+
+            </div>
           )}
 
           {success && (

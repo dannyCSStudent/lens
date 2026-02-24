@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.core.models import User, RefreshToken, EmailVerificationToken
 from app.core.auth.dependencies import get_current_user
 from app.api.schemas.password_reset import PasswordResetRequest, PasswordResetConfirm   
+from app.api.schemas.auth import VerifyEmailSchema, RegisterSchema, ResendVerificationSchema
 from pydantic import BaseModel, EmailStr, field_validator
 from datetime import datetime, timedelta, timezone
 import uuid
@@ -110,9 +111,16 @@ async def register(
 
     return {"message": "Verification email sent"}
 
+from fastapi import Response, Cookie
+
 @router.post("/login")
 @limiter.limit("5/minute", key_func=email_rate_limit_key)
-async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(
+    request: Request,
+    response: Response,
+    data: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
 
     result = await db.execute(
         select(User).where(User.email == data.email)
@@ -125,8 +133,7 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
     if not user.is_verified:
         raise HTTPException(status_code=403, detail="Email not verified")
 
-    
-    # Check lock
+    # Account lock check
     if user.locked_until and user.locked_until > datetime.now(timezone.utc):
 
         await log_security_event(
@@ -142,7 +149,7 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
             detail="Account locked. Try again later."
         )
 
-    # Verify password
+    # Password verification
     if not verify_password(data.password, user.password_hash):
 
         user.failed_attempts = (user.failed_attempts or 0) + 1
@@ -169,7 +176,7 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
 
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Success
+    # SUCCESS
     user.failed_attempts = 0
     user.locked_until = None
 
@@ -199,11 +206,26 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
 
     await db.commit()
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    }
+    # 🔐 Set httpOnly cookies
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,  # True in production (HTTPS)
+        samesite="lax",
+        max_age=60 * 15,
+    )
+
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,  # True in production
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,
+    )
+
+    return {"message": "Login successful"}
 
 
 @router.post("/refresh")
@@ -279,19 +301,21 @@ async def refresh(
 @router.post("/logout")
 async def logout(
     request: Request,
-    data: RefreshRequest,
+    response: Response,
+    refresh_token: str = Cookie(None),
     db: AsyncSession = Depends(get_db),
 ):
 
-    token_hash = hash_token(data.refresh_token)
+    if refresh_token:
+        token_hash = hash_token(refresh_token)
 
-    result = await db.execute(
-        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
-    )
-    stored_token = result.scalar_one_or_none()
+        result = await db.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+        )
+        stored_token = result.scalar_one_or_none()
 
-    if stored_token:
-        await db.delete(stored_token)
+        if stored_token:
+            await db.delete(stored_token)
 
     await log_security_event(
         db,
@@ -300,6 +324,10 @@ async def logout(
     )
 
     await db.commit()
+
+    # Delete cookies
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
 
     return {"message": "Logged out"}
 
@@ -481,3 +509,60 @@ async def verify_email(
     await db.commit()
 
     return {"message": "Email verified successfully"}
+
+
+@router.post("/resend-verification")
+@limiter.limit("5/minute", key_func=email_rate_limit_key)
+async def resend_verification(
+    request: Request,
+    payload: ResendVerificationSchema,
+    db: AsyncSession = Depends(get_db),
+):
+    # Always return generic response
+    generic_response = {
+        "message": "If an account exists, a verification email has been sent."
+    }
+
+    # Find user
+    result = await db.execute(
+        select(User).where(User.email == payload.email)
+    )
+    user = result.scalar_one_or_none()
+
+    # If user doesn't exist OR already verified → return generic
+    if not user or user.is_verified:
+        return generic_response
+
+    # Delete existing verification tokens
+    await db.execute(
+        delete(EmailVerificationToken).where(
+            EmailVerificationToken.user_id == user.id
+        )
+    )
+
+    # Generate new token
+    raw_token, token_hash = generate_verification_token()
+
+    verification = EmailVerificationToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+    )
+
+    db.add(verification)
+
+    # Optional: log security event
+    await log_security_event(
+        db,
+        SecurityEventType.resend_verification,
+        request,
+        user_id=str(user.id),
+    )
+
+    await db.commit()
+
+    # TODO: send email here
+    verification_link = f"http://localhost:3000/verify-email?token={raw_token}"
+    print("Resend verification link:", verification_link)
+
+    return generic_response

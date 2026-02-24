@@ -32,6 +32,9 @@ class VerifyEmailSchema(BaseModel):
     token: TokenStr
 
 
+class ResendVerificationSchema(BaseModel):
+    email: EmailStr
+
 
 class RegisterSchema(BaseModel):
     email: EmailStr

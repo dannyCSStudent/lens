@@ -4,19 +4,18 @@ export async function apiFetch(
   endpoint: string,
   options?: RequestInit
 ) {
-  const token = localStorage.getItem("access_token");
-
   const res = await fetch(`${API_URL}${endpoint}`, {
+    credentials: "include", // 🔐 send httpOnly cookies
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
       ...options?.headers,
     },
   });
 
   if (!res.ok) {
-    throw new Error("API error");
+    const errorData = await res.json().catch(() => null);
+    throw new Error(errorData?.detail || "API error");
   }
 
   return res.json();
