@@ -566,3 +566,82 @@ async def resend_verification(
     print("Resend verification link:", verification_link)
 
     return generic_response
+
+@router.post("/refresh")
+async def refresh_token(
+    request: Request,
+    response: Response,
+    refresh_token: str | None = Cookie(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    token_hash = hash_token(refresh_token)
+
+    result = await db.execute(
+        select(RefreshToken).where(
+            RefreshToken.token_hash == token_hash
+        )
+    )
+    stored_token = result.scalar_one_or_none()
+
+    if not stored_token:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    # Check expiration
+    if stored_token.expires_at < datetime.now(timezone.utc):
+        await db.delete(stored_token)
+        await db.commit()
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+
+    user = await db.get(User, stored_token.user_id)
+
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    # 🔁 ROTATION STARTS HERE
+
+    # Delete old refresh token
+    await db.delete(stored_token)
+
+    # Create new tokens
+    new_access_token = create_access_token(str(user.id))
+    new_refresh_token = create_refresh_token(str(user.id))
+
+    new_refresh_entry = RefreshToken(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        token_hash=hash_token(new_refresh_token),
+        device_name=None,
+        ip_address=request.client.host,
+        user_agent=request.headers.get("user-agent"),
+        created_at=datetime.now(timezone.utc),
+        last_used_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+    )
+
+    db.add(new_refresh_entry)
+    await db.commit()
+
+    # Set new cookies
+    response.set_cookie(
+        key="access_token",
+        value=new_access_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=60 * 15,
+    )
+
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,
+    )
+
+    return {"message": "Token refreshed"}
