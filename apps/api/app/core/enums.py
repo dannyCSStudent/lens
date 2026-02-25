@@ -35,8 +35,8 @@ class SecurityEventType(str, Enum):
     refresh_reuse_detected = "refresh_reuse_detected"
     session_revoked = "session_revoked"
     logout = "logout"
-
-
-class SecurityEventType(str, Enum):
+    refresh_token_reuse = "refresh_token_reuse"
     resend_verification = "resend_verification"
+
+
 

@@ -50,6 +50,8 @@ async def get_current_user(
             status_code=403,
             detail="Account locked"
         )
+    print("Access token:", access_token)
+
 
     return user
 
