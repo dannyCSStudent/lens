@@ -180,6 +180,25 @@ async def login(
     # 🔥 1️⃣ Generate session UUID FIRST
     refresh_session_id = uuid.uuid4()
 
+    result = await db.execute(
+        select(RefreshToken)
+        .where(
+            RefreshToken.user_id == user.id,
+            RefreshToken.is_revoked == False,
+            RefreshToken.expires_at > datetime.now(timezone.utc),
+        )
+        .order_by(RefreshToken.created_at.asc())
+    )
+
+    active_sessions = result.scalars().all()
+
+    MAX_SESSIONS = 5
+
+    if len(active_sessions) >= MAX_SESSIONS:
+        oldest_session = active_sessions[0]
+        oldest_session.is_revoked = True
+
+
     # 🔥 2️⃣ Create refresh JWT bound to session ID
     refresh_token_value = create_refresh_token(
         str(user.id),
@@ -241,7 +260,6 @@ async def login(
     return {"message": "Login successful"}
 
 
-
 @router.post("/logout")
 async def logout(
     request: Request,
@@ -249,17 +267,18 @@ async def logout(
     refresh_token: str = Cookie(None),
     db: AsyncSession = Depends(get_db),
 ):
-
     if refresh_token:
         token_hash = hash_token(refresh_token)
 
         result = await db.execute(
-            select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+            select(RefreshToken).where(
+                RefreshToken.token_hash == token_hash
+            )
         )
         stored_token = result.scalar_one_or_none()
 
         if stored_token:
-            await db.delete(stored_token)
+            stored_token.is_revoked = True
 
     await log_security_event(
         db,
@@ -269,12 +288,10 @@ async def logout(
 
     await db.commit()
 
-    # Delete cookies
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
 
     return {"message": "Logged out"}
-
 
 
 @router.post("/password-reset/request")
@@ -344,8 +361,14 @@ async def confirm_password_reset(
     user.locked_until = None
 
     await db.execute(
-        delete(RefreshToken).where(RefreshToken.user_id == user.id)
+        update(RefreshToken)
+        .where(
+            RefreshToken.user_id == user.id,
+            RefreshToken.is_revoked == False,
+        )
+        .values(is_revoked=True)
     )
+
 
     await log_security_event(
         db,
@@ -367,7 +390,6 @@ async def list_sessions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Extract session id from access token
     access_token = request.cookies.get("access_token")
     current_session_id = None
 
@@ -378,7 +400,9 @@ async def list_sessions(
 
     result = await db.execute(
         select(RefreshToken).where(
-            RefreshToken.user_id == current_user.id
+            RefreshToken.user_id == current_user.id,
+            RefreshToken.is_revoked == False,
+            RefreshToken.expires_at > datetime.now(timezone.utc),
         )
     )
 
@@ -418,7 +442,8 @@ async def revoke_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    await db.delete(session)
+    session.is_revoked = True
+
     await db.commit()
 
     return {"message": "Session revoked"}
@@ -524,6 +549,7 @@ async def resend_verification(
 
     return generic_response
 
+
 @router.post("/refresh")
 async def refresh_token(
     request: Request,
@@ -617,6 +643,9 @@ async def refresh_token(
 
     # 🔄 ROTATION STARTS HERE
 
+    stored_token.last_used_at = datetime.now(timezone.utc)
+
+
     # 1️⃣ Revoke old token
     stored_token.is_revoked = True
 
@@ -690,10 +719,13 @@ async def revoke_other_sessions(
     current_session_id = payload.get("sid")
 
     await db.execute(
-        delete(RefreshToken).where(
+        update(RefreshToken)
+        .where(
             RefreshToken.user_id == current_user.id,
             RefreshToken.id != current_session_id,
+            RefreshToken.is_revoked == False,
         )
+        .values(is_revoked=True)
     )
 
     await db.commit()

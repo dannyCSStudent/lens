@@ -45,9 +45,17 @@ class RefreshToken(Base):
         nullable=True,
     )
 
-    device_name: Mapped[str] = mapped_column(String, nullable=True)
-    ip_address: Mapped[str] = mapped_column(String, nullable=True)
-    user_agent: Mapped[str] = mapped_column(String, nullable=True)
+    device_name: Mapped[str] = mapped_column(
+        String, nullable=True
+    )
+
+    ip_address: Mapped[str] = mapped_column(
+        String, nullable=True
+    )
+
+    user_agent: Mapped[str] = mapped_column(
+        String, nullable=True
+    )
 
     is_revoked: Mapped[bool] = mapped_column(
         Boolean,
