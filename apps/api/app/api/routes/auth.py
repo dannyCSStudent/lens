@@ -23,24 +23,18 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.core.utils.security import log_security_event
 from app.core.enums import SecurityEventType
-from app.api.schemas.auth import VerifyEmailSchema, RegisterSchema
 from app.core.utils.generate_token import generate_verification_token
 from app.core.rate_limit import email_rate_limit_key
 from jose import jwt, JWTError
 from app.core.security import SECRET_KEY, ALGORITHM
 
-
-
-
-
 limiter = Limiter(key_func=get_remote_address)
-
-
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
 RESET_TOKEN_EXPIRY_MINUTES = 15
+IDLE_TIMEOUT_MINUTES = 30
 
 class RegisterRequest(BaseModel):
     email: EmailStr
@@ -629,6 +623,25 @@ async def refresh_token(
             status_code=401,
             detail="Replay detected. All sessions revoked."
         )
+    
+    # ⏳ IDLE TIMEOUT CHECK
+    if stored_token.last_used_at:
+        idle_cutoff = stored_token.last_used_at + timedelta(
+            minutes=IDLE_TIMEOUT_MINUTES
+        )
+
+        if idle_cutoff < datetime.now(timezone.utc):
+            stored_token.is_revoked = True
+            await db.commit()
+
+            response.delete_cookie("access_token")
+            response.delete_cookie("refresh_token")
+
+            raise HTTPException(
+                status_code=401,
+                detail="Session expired due to inactivity"
+            )
+
 
     # Expiration check
     if stored_token.expires_at < datetime.now(timezone.utc):
