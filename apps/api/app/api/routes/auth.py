@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy import delete
+from sqlalchemy import select, delete, update
 import hashlib
 from app.core.security import (
     decode_token,
@@ -174,32 +173,41 @@ async def login(
 
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # SUCCESS
+    # ✅ SUCCESS
     user.failed_login_attempts = 0
     user.locked_until = None
 
-    # Create refresh token first (we need its ID)
-    refresh_token = create_refresh_token(str(user.id))
+    # 🔥 1️⃣ Generate session UUID FIRST
+    refresh_session_id = uuid.uuid4()
 
+    # 🔥 2️⃣ Create refresh JWT bound to session ID
+    refresh_token_value = create_refresh_token(
+        str(user.id),
+        session_id=str(refresh_session_id),
+    )
+
+    # 🔥 3️⃣ Create DB entry using same ID
     refresh_token_entry = RefreshToken(
-        id=uuid.uuid4(),
+        id=refresh_session_id,
         user_id=user.id,
-        token_hash=hash_token(refresh_token),
+        token_hash=hash_token(refresh_token_value),
         device_name=None,
         ip_address=request.client.host,
         user_agent=request.headers.get("user-agent"),
         created_at=datetime.now(timezone.utc),
         last_used_at=datetime.now(timezone.utc),
         expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        is_revoked=False,
     )
 
-    db.add(refresh_token_entry)
-    await db.flush()  # ensures ID is available
+    print("Refresh token value:", refresh_token_value)
 
-    # 🔐 Now create access token WITH session id
+    db.add(refresh_token_entry)
+
+    # 🔐 4️⃣ Create access token linked to same session
     access_token = create_access_token(
         str(user.id),
-        session_id=str(refresh_token_entry.id),
+        session_id=str(refresh_session_id),
     )
 
     await log_security_event(
@@ -211,19 +219,19 @@ async def login(
 
     await db.commit()
 
-    # Set cookies
+    # 🔐 5️⃣ Set cookies
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False,
+        secure=False,  # True in production
         samesite="lax",
         max_age=60 * 15,
     )
 
     response.set_cookie(
         key="refresh_token",
-        value=refresh_token,
+        value=refresh_token_value,
         httponly=True,
         secure=False,
         samesite="lax",
@@ -523,16 +531,19 @@ async def refresh_token(
     refresh_token: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ):
+    print("Incoming refresh token:", refresh_token)
+
 
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    # 🔐 First decode token to extract user_id
+    # 🔐 Decode refresh token
     try:
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
+        token_sid = payload.get("sid")
 
-        if not user_id:
+        if not user_id or not token_sid:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     except JWTError:
@@ -556,12 +567,12 @@ async def refresh_token(
             user_id=str(user_id),
         )
 
+        # Global revoke on replay
         await db.execute(
-            delete(RefreshToken).where(
-                RefreshToken.user_id == user_id
-            )
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id)
+            .values(is_revoked=True)
         )
-
         await db.commit()
 
         response.delete_cookie("access_token")
@@ -571,10 +582,31 @@ async def refresh_token(
             status_code=401,
             detail="Session revoked due to suspicious activity"
         )
+    
+    # 🔐 CRITICAL CHECK
+    if str(stored_token.id) != token_sid:
+        raise HTTPException(status_code=401, detail="Invalid token session")
+
+    # 🚨 If token already revoked → replay
+    if stored_token.is_revoked:
+        await db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id)
+            .values(is_revoked=True)
+        )
+        await db.commit()
+
+        response.delete_cookie("access_token")
+        response.delete_cookie("refresh_token")
+
+        raise HTTPException(
+            status_code=401,
+            detail="Replay detected. All sessions revoked."
+        )
 
     # Expiration check
     if stored_token.expires_at < datetime.now(timezone.utc):
-        await db.delete(stored_token)
+        stored_token.is_revoked = True
         await db.commit()
         raise HTTPException(status_code=401, detail="Refresh token expired")
 
@@ -583,32 +615,50 @@ async def refresh_token(
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    # 🔁 ROTATION
+    # 🔄 ROTATION STARTS HERE
 
-    await db.delete(stored_token)
+    # 1️⃣ Revoke old token
+    stored_token.is_revoked = True
 
-    new_access_token = create_access_token(
+    # 2️⃣ Create new session ID FIRST
+    new_session_id = uuid.uuid4()
+
+    # 3️⃣ Create new refresh token using that ID
+    new_refresh_token_value = create_refresh_token(
         str(user.id),
-        session_id=str(new_refresh_entry.id),
+        session_id=str(new_session_id),
     )
 
-    new_refresh_token = create_refresh_token(str(user.id))
-
+    # 4️⃣ Create DB entry using same ID
     new_refresh_entry = RefreshToken(
-        id=uuid.uuid4(),
+        id=new_session_id,
         user_id=user.id,
-        token_hash=hash_token(new_refresh_token),
-        device_name=None,
+        token_hash=hash_token(new_refresh_token_value),
+        device_name=stored_token.device_name,
         ip_address=request.client.host,
         user_agent=request.headers.get("user-agent"),
         created_at=datetime.now(timezone.utc),
         last_used_at=datetime.now(timezone.utc),
         expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        is_revoked=False,
     )
 
     db.add(new_refresh_entry)
+    await db.flush()
+
+    # 5️⃣ Link chain
+    stored_token.replaced_by = new_refresh_entry.id
+
+    # 6️⃣ Issue new access token linked to new session
+    new_access_token = create_access_token(
+        str(user.id),
+        session_id=str(new_refresh_entry.id),
+    )
+
+
     await db.commit()
 
+    # 🔐 Set cookies
     response.set_cookie(
         key="access_token",
         value=new_access_token,
@@ -620,14 +670,14 @@ async def refresh_token(
 
     response.set_cookie(
         key="refresh_token",
-        value=new_refresh_token,
+        value=new_refresh_token_value,
         httponly=True,
         secure=False,
         samesite="lax",
         max_age=60 * 60 * 24 * 7,
     )
 
-    return {"message": "Token refreshed"}
+    return {"message": "Token rotated"}
 
 
 @router.delete("/sessions/revoke-others")

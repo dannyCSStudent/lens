@@ -61,17 +61,21 @@ def create_access_token(user_id: str, session_id: str | None = None):
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_id: str, session_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
     payload = {
         "sub": user_id,
+        "sid": session_id,
         "exp": expire,
         "type": "refresh",
         "iat": datetime.now(timezone.utc),
     }
+    print("Creating refresh token with payload:", payload)
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
 
 
 # --------------------------------------------------
