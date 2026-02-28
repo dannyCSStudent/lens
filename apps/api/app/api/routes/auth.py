@@ -27,6 +27,12 @@ from app.core.utils.generate_token import generate_verification_token
 from app.core.rate_limit import email_rate_limit_key
 from jose import jwt, JWTError
 from app.core.security import SECRET_KEY, ALGORITHM
+from app.core.cache.redis import (
+    add_revoked_session,
+    is_session_revoked,
+    redis_client,
+)
+
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -262,6 +268,12 @@ async def logout(
     db: AsyncSession = Depends(get_db),
 ):
     if refresh_token:
+        try:
+            payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+            token_sid = payload.get("sid")
+        except JWTError:
+            token_sid = None
+
         token_hash = hash_token(refresh_token)
 
         result = await db.execute(
@@ -273,6 +285,15 @@ async def logout(
 
         if stored_token:
             stored_token.is_revoked = True
+
+        # 🔴 Instant Redis revoke
+        if token_sid:
+            await redis_client.set(
+                f"revoked:{token_sid}",
+                "1",
+                ex=60 * 60 * 24 * 7
+            )
+
 
     await log_security_event(
         db,
@@ -565,6 +586,17 @@ async def refresh_token(
 
         if not user_id or not token_sid:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
+        
+        # 🚨 Check Redis instant revocation
+        if await redis_client.get(f"revoked:{token_sid}"):
+            response.delete_cookie("access_token")
+            response.delete_cookie("refresh_token")
+
+            raise HTTPException(
+                status_code=401,
+                detail="Session revoked"
+            )
+
 
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
@@ -580,6 +612,13 @@ async def refresh_token(
 
     # 🚨 REPLAY DETECTION
     if not stored_token:
+        # Add user-wide revocation marker
+        await redis_client.set(
+            f"user_revoked:{user_id}",
+            "1",
+            ex=60 * 60 * 24 * 7
+        )
+
         await log_security_event(
             db,
             SecurityEventType.refresh_token_reuse,
@@ -609,6 +648,12 @@ async def refresh_token(
 
     # 🚨 If token already revoked → replay
     if stored_token.is_revoked:
+        await redis_client.set(
+            f"revoked:{token_sid}",
+            "1",
+            ex=60 * 60 * 24 * 7
+        )
+
         await db.execute(
             update(RefreshToken)
             .where(RefreshToken.user_id == user_id)
@@ -631,6 +676,12 @@ async def refresh_token(
         )
 
         if idle_cutoff < datetime.now(timezone.utc):
+            await redis_client.set(
+                f"revoked:{token_sid}",
+                "1",
+                ex=60 * 60 * 24 * 7
+            )
+
             stored_token.is_revoked = True
             await db.commit()
 
@@ -645,6 +696,12 @@ async def refresh_token(
 
     # Expiration check
     if stored_token.expires_at < datetime.now(timezone.utc):
+        await redis_client.set(
+            f"revoked:{token_sid}",
+            "1",
+            ex=60 * 60 * 24 * 7
+        )
+
         stored_token.is_revoked = True
         await db.commit()
         raise HTTPException(status_code=401, detail="Refresh token expired")
@@ -661,6 +718,13 @@ async def refresh_token(
 
     # 1️⃣ Revoke old token
     stored_token.is_revoked = True
+
+    await redis_client.set(
+        f"revoked:{token_sid}",
+        "1",
+        ex=60 * 60 * 24 * 7
+    )
+
 
     # 2️⃣ Create new session ID FIRST
     new_session_id = uuid.uuid4()

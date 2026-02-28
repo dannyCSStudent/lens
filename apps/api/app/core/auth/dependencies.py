@@ -7,6 +7,8 @@ from app.core.database import get_db
 from app.core.models.user import User
 from app.core.security import SECRET_KEY, ALGORITHM
 from datetime import datetime, timezone
+from app.core.cache.redis import redis_client
+
 
 
 async def get_current_user(
@@ -19,10 +21,19 @@ async def get_current_user(
 
     try:
         payload = jwt.decode(access_token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str | None = payload.get("sub")
 
-        if user_id is None:
+        user_id: str | None = payload.get("sub")
+        token_sid: str | None = payload.get("sid")
+
+        if not user_id or not token_sid:
             raise HTTPException(status_code=401, detail="Invalid token")
+
+        # 🚨 Instant access-token revocation check (Redis)
+        if await redis_client.get(f"revoked:{token_sid}"):
+            raise HTTPException(
+                status_code=401,
+                detail="Session revoked"
+            )
 
         user_uuid = UUID(user_id)
 
@@ -44,14 +55,12 @@ async def get_current_user(
             detail="Email not verified"
         )
 
-    # 🔒 Lockout check (if using locked_until)
+    # 🔒 Lockout check
     if user.locked_until and user.locked_until > datetime.now(timezone.utc):
         raise HTTPException(
             status_code=403,
             detail="Account locked"
         )
-    print("Access token:", access_token)
-
 
     return user
 
@@ -66,9 +75,15 @@ async def get_optional_user(
 
     try:
         payload = jwt.decode(access_token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("sub")
 
-        if not user_id:
+        user_id = payload.get("sub")
+        token_sid = payload.get("sid")
+
+        if not user_id or not token_sid:
+            return None
+
+        # 🚨 Instant session revoke check
+        if await redis_client.get(f"revoked:{token_sid}"):
             return None
 
         user_uuid = UUID(user_id)
