@@ -5,7 +5,7 @@ import os
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg://lens_user:lens_pass@localhost:5432/lens"
+    "postgresql+psycopg://postgres:postgres@db:5432/lens"
 )
 
 engine = create_async_engine(

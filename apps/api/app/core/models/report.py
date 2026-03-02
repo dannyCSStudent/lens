@@ -14,7 +14,7 @@ class Report(Base):
     id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
-        server_default=sa.text("uuid_generate_v4()"),
+        server_default=sa.text("gen_random_uuid()"),
     )
 
     reporter_id: Mapped[PyUUID] = mapped_column(
