@@ -1,7 +1,7 @@
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import func
 from app.core.models.notification import Notification
 from fastapi import HTTPException
@@ -90,7 +90,7 @@ async def mark_notification_read(
             Notification.user_id == user_id,
             Notification.read_at.is_(None),
         )
-        .values(read_at=datetime.utcnow())
+        .values(read_at=datetime.now(timezone.utc))
         .returning(Notification.id)
     )
 

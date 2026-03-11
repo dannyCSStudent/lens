@@ -15,6 +15,8 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
     access_token: str | None = Cookie(default=None),
 ) -> User:
+    
+    print("Access token from cookie:", access_token)  # Debugging line
 
     if not access_token:
         raise HTTPException(status_code=401, detail="Not authenticated")

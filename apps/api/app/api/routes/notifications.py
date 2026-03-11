@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update
 from typing import List
 from uuid import UUID
-
+from datetime import timezone
 from app.api.schemas.notification import NotificationRead
 from app.services.notification_service import (
     get_user_notifications,
@@ -68,7 +68,7 @@ async def read_all_notifications(
             Notification.user_id == user.id,
             Notification.read_at.is_(None),
         )
-        .values(read_at=datetime.utcnow())
+        .values(read_at=datetime.now(timezone.utc))
     )
 
     await db.execute(stmt)

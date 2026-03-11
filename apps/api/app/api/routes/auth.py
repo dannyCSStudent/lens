@@ -24,7 +24,10 @@ from slowapi.util import get_remote_address
 from app.core.utils.security import log_security_event
 from app.core.enums import SecurityEventType
 from app.core.utils.generate_token import generate_verification_token
+from app.core.utils.network import get_real_ip
 from app.core.rate_limit import email_rate_limit_key
+from app.core.rate_limit import limiter
+from app.core.securities.login_detection import detect_suspicious_login
 from jose import jwt, JWTError
 from app.core.security import SECRET_KEY, ALGORITHM
 from app.core.cache.redis import (
@@ -34,7 +37,7 @@ from app.core.cache.redis import (
 )
 
 
-limiter = Limiter(key_func=get_remote_address)
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 MAX_FAILED_ATTEMPTS = 5
@@ -52,6 +55,7 @@ class RegisterRequest(BaseModel):
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters")
         return v
+    
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -111,7 +115,7 @@ async def register(
 from fastapi import Response, Cookie
 
 @router.post("/login")
-@limiter.limit("5/minute", key_func=email_rate_limit_key)
+@limiter.limit("10/minute", key_func=email_rate_limit_key)
 async def login(
     request: Request,
     response: Response,
@@ -172,6 +176,20 @@ async def login(
         await db.commit()
 
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    ip_address = request.headers.get(
+        "x-forwarded-for",
+        request.client.host
+    )
+
+    await detect_suspicious_login(
+        db,
+        request,
+        user,
+        ip_address = get_real_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+
 
     # ✅ SUCCESS
     user.failed_login_attempts = 0
@@ -211,7 +229,7 @@ async def login(
         user_id=user.id,
         token_hash=hash_token(refresh_token_value),
         device_name=None,
-        ip_address=request.client.host,
+        ip_address = get_real_ip(request),
         user_agent=request.headers.get("user-agent"),
         created_at=datetime.now(timezone.utc),
         last_used_at=datetime.now(timezone.utc),
@@ -311,6 +329,7 @@ async def logout(
 
 @router.post("/password-reset/request")
 @limiter.limit("3/minute")
+@limiter.limit("5/hour", key_func=email_rate_limit_key)
 async def request_password_reset(
     request: Request,
     data: PasswordResetRequest,
@@ -416,7 +435,7 @@ async def list_sessions(
     result = await db.execute(
         select(RefreshToken).where(
             RefreshToken.user_id == current_user.id,
-            RefreshToken.is_revoked == False,
+            RefreshToken.is_revoked.is_(False),
             RefreshToken.expires_at > datetime.now(timezone.utc),
         )
     )
@@ -459,9 +478,13 @@ async def revoke_session(
 
     session.is_revoked = True
 
+    # 🚀 instant revocation
+    await redis_client.set(f"revoked:{session_id}", "1")
+
     await db.commit()
 
     return {"message": "Session revoked"}
+
 
 
 @router.post("/verify-email")
@@ -566,6 +589,7 @@ async def resend_verification(
 
 
 @router.post("/refresh")
+@limiter.limit("20/minute")
 async def refresh_token(
     request: Request,
     response: Response,
@@ -795,16 +819,23 @@ async def revoke_other_sessions(
     payload = decode_token(request.cookies.get("access_token"))
     current_session_id = payload.get("sid")
 
-    await db.execute(
-        update(RefreshToken)
-        .where(
+    result = await db.execute(
+        select(RefreshToken).where(
             RefreshToken.user_id == current_user.id,
             RefreshToken.id != current_session_id,
             RefreshToken.is_revoked == False,
         )
-        .values(is_revoked=True)
     )
+
+    sessions = result.scalars().all()
+
+    for s in sessions:
+        s.is_revoked = True
+
+        # 🚀 instant revoke
+        await redis_client.set(f"revoked:{s.id}", "1")
 
     await db.commit()
 
     return {"message": "Other sessions revoked"}
+

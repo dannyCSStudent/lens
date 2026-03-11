@@ -16,7 +16,10 @@ async def log_security_event(
     event = SecurityEvent(
         user_id=user_id,
         event_type=event_type.value,
-        ip_address=request.client.host if request.client else None,
+        ip_address=request.headers.get(
+            "x-forwarded-for",
+            request.client.host
+        ).split(",")[0].strip(),
         user_agent=request.headers.get("user-agent"),
         metadata=metadata,
     )

@@ -37,6 +37,7 @@ class SecurityEventType(str, Enum):
     logout = "logout"
     refresh_token_reuse = "refresh_token_reuse"
     resend_verification = "resend_verification"
-
-
-
+    suspicious_login_country = "suspicious_login_country"
+    impossible_travel_login = "impossible_travel_login"
+    suspicious_login_ip = "suspicious_login_ip"
+    suspicious_login_device = "suspicious_login_device"

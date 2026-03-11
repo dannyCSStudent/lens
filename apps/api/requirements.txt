@@ -40,3 +40,4 @@ typing_extensions==4.15.0
 uvicorn==0.41.0
 wrapt==2.1.1
 psycopg[binary]
+geoip2
