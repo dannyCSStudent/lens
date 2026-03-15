@@ -27,6 +27,10 @@ out/
 build
 dist
 
+__pycache__/
+*.pyc
+*.pyo
+
 
 # Debug
 npm-debug.log*
