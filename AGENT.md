@@ -1,169 +1,219 @@
-# LENS – Codex Development Guide
+# LENS – AI Development Guide
 
 This document provides architectural context for AI coding agents working on the LENS repository.
 
-Agents should read this file before making code changes.
+Agents MUST read this file before making any code changes.
+
+If uncertain about a change, agents must ask for clarification rather than modifying existing systems.
+
+
+---
+
+# Critical Safety Rules
+
+AI agents must follow these rules at all times.
+
+Agents MUST NOT:
+
+- delete existing files
+- remove existing database columns
+- rewrite working systems
+- refactor large portions of the codebase
+- remove services or routes that are already implemented
+
+Agents MAY:
+
+- extend existing services
+- add new fields to models
+- add new services
+- add migrations
+- add new endpoints
+
+All work must be **incremental upgrades to the current architecture**.
+
+Never destroy working functionality.
 
 ---
 
 # Project Overview
 
-LENS is a free-speech-first social platform designed to separate **expression from factual claims** and allow evidence to accumulate without algorithmic amplification.
+LENS is an **evidence-based discourse platform**.
 
-The system does NOT determine truth.
+The goal is to structure claims and evidence so information can be evaluated transparently.
 
-Instead, it structures discourse so that evidence can accumulate transparently.
+The system does not enforce a single truth authority.
 
-Core design philosophy:
+Instead it provides **structured intelligence signals** derived from evidence.
+
+Core philosophy:
 
 Speech is free.  
-Confidence is earned.  
-Truth is never decreed.
+Evidence accumulates.  
+Confidence emerges from data.
 
 ---
 
-# Core Platform Concepts
+# Core Content Types
 
 Every post must be one of three types:
 
 ### Expression
+
 Opinions or beliefs.
 
 Characteristics:
+
 - never subject to verification
 - cannot receive evidence
 
 ---
 
 ### Claim
-A statement asserting factual reality.
+
+A factual assertion.
 
 Characteristics:
+
 - can receive supporting or contradicting evidence
-- evidence contributes to the post’s confidence indicator
+- evidence contributes to confidence metrics
 
 ---
 
 ### Investigation
-An evolving inquiry.
+
+Open-ended inquiry.
 
 Characteristics:
+
 - designed to accumulate evidence
-- open-ended
+- evolves over time
 
 ---
 
 # Evidence System
 
-Evidence is NOT a comment.
-
-Evidence is a structured record.
+Evidence is structured data, not a comment.
 
 Each evidence item contains:
 
-- evidence_id
-- associated post_id
-- submitted_by user
+- id
+- post_id
+- submitted_by
 - evidence_type (link, document, image, quote)
 - source_description
 - direction (supports | contradicts)
-- timestamp
+- source_url
+- archived_content
+- content_hash
+- tampered flag
+- credibility_score
 
-Important rules:
+Evidence rules:
 
-- Evidence cannot be deleted by users
-- Evidence cannot be downvoted
-- Evidence exists independently of replies
+- Evidence cannot be deleted
 - Evidence is immutable once created
+- Evidence must be archived for integrity
+- Source content must be hashed
 
-Evidence integrity is critical to the platform.
-
----
-
-# Confidence Indicator
-
-The system never determines truth.
-
-Instead it reflects the **state of evidence**.
-
-Rules:
-
-No evidence
-→ "No community review yet"
-
-Evidence from one direction
-→ "Community evidence present"
-
-Evidence from both directions
-→ "Conflicting evidence present"
-
-There are:
-
-- no scores
-- no voting
-- no ranking
-
-Confidence state must always be **computed server-side**.
+Evidence integrity is critical to the system.
 
 ---
 
-# Feed Design Rules
+# Intelligence Layer
 
-The feed must always remain:
+The platform includes analytical systems that operate on evidence.
 
-Chronological.
+These systems DO NOT declare absolute truth.
 
-Forbidden features:
+They provide **confidence signals derived from evidence patterns**.
 
-- trending
-- ranking
-- virality algorithms
-- engagement scoring
-- follower amplification
+Current systems include:
 
-This rule is **non-negotiable**.
+### Evidence Credibility Engine
 
----
+Calculates credibility_score based on:
 
-# Moderation Model
-
-Moderation is intentionally minimal.
-
-Allowed moderator actions:
-
-- remove illegal content
-- lock threads when legally required
-
-Not allowed:
-
-- shadow banning
-- silent reach suppression
-- hidden enforcement
-
-All moderation actions must be:
-
-- public
-- immutable
-- logged
-- linked to moderator accounts
-
-Moderation logs must never be editable.
+- evidence weight
+- source reputation
+- tamper status
 
 ---
 
-# Monorepo Architecture
+### Truth Aggregation Engine
 
-The repository uses a **pnpm + turbo monorepo structure**.
+Computes truth_score for each claim based on:
 
-Top-level structure:
-
-apps/
-packages/
-docker/
+supporting evidence  
+vs  
+contradicting evidence
 
 ---
 
-# Backend API
+### Source Reputation Intelligence
+
+Tracks historical performance of sources.
+
+Metrics include:
+
+- citation_count
+- credibility_history
+- tamper_events
+- reputation_score
+
+---
+
+### Narrative Detection Engine
+
+Detects clusters of claims sharing similar evidence sources.
+
+Outputs:
+
+- narrative_cluster_id
+- narrative_risk_score
+
+---
+
+### Claim Clustering Engine
+
+Groups semantically similar claims.
+
+Fields:
+
+- claim_cluster_id
+- claim_similarity_score
+
+---
+
+### Evidence Discovery Agents
+
+Automated agents may investigate claims by:
+
+- searching external sources
+- discovering supporting or contradicting evidence
+- attaching evidence automatically
+
+Agents must operate through the service layer.
+
+---
+
+# Feed Design
+
+The main feed must remain chronological.
+
+Sorting modes allowed:
+
+- latest
+- evidence_activity
+
+The system must not implement:
+
+- virality ranking
+- engagement amplification
+- follower boosting
+
+---
+
+# Backend Architecture
 
 Location:
 
@@ -176,209 +226,51 @@ Stack:
 - PostgreSQL
 - SQLAlchemy
 - Alembic migrations
-- JWT authentication
 
-Key directories:
+Important directories:
 
-app/api/routes
+app/api/routes  
 API endpoints
 
-app/api/schemas
-Pydantic request/response models
+app/api/schemas  
+Pydantic schemas
 
-app/core/models
+app/core/models  
 Database models
 
-app/services
+app/services  
 Business logic layer
 
-Agents should implement new features in the **service layer** first, not directly in routes.
+New functionality should be implemented in **services first**.
 
 ---
 
-# Database
+# Database Rules
 
 Primary entities:
 
 users  
 posts  
 evidence  
+sources  
 replies  
 reports  
 moderation_actions  
-notifications  
 
 Constraints:
 
-Posts are never deleted.
-Status changes instead.
-
-Evidence cannot be deleted.
-
-Moderation logs must be immutable.
-
-Counters must be enforced at database level.
-
----
-
-# Web Application
-
-Location:
-
-apps/web
-
-Stack:
-
-- Next.js
-- TypeScript
-- App Router
-- Tailwind CSS
-
-Responsibilities:
-
-- authentication
-- feed display
-- post creation
-- evidence submission
-- threaded discussions
-- moderation transparency views
-
-The web app should remain **stateless where possible** and rely on the API.
-
----
-
-# Shared Packages
-
-packages/contracts
-
-Shared TypeScript types between frontend and backend.
-
-packages/ui
-
-Shared UI components.
-
-packages/rules
-
-Contains logic related to confidence indicators.
+- posts should not be hard deleted
+- evidence must remain immutable
+- moderation logs must be immutable
 
 ---
 
 # API Design Rules
 
-All write operations require authentication.
-
-Public read endpoints are allowed where safe.
+Write endpoints require authentication.
 
 Responses must be JSON.
 
-Pagination must use cursor-based pagination.
+Pagination must use cursor pagination.
 
-Confidence states must always be computed server-side.
-
-Never trust client-provided counters.
-
----
-
-# Security Principles
-
-Authentication:
-
-JWT access tokens
-
-Refresh tokens stored in database.
-
-Security features implemented:
-
-- login detection
-- security events
-- rate limiting
-- geoip tracking
-
-Security services are located in:
-
-app/services/security_service.py
-
-Agents must not weaken security systems.
-
----
-
-# Development Commands
-
-Start backend:
-
-cd apps/api
-uvicorn app.main:app --reload
-
-Run migrations:
-
-alembic upgrade head
-
-Run web app:
-
-cd apps/web
-pnpm dev
-
-Run tests:
-
-pytest
-
----
-
-# Coding Guidelines
-
-Backend:
-
-- use async FastAPI routes
-- use Pydantic schemas
-- keep business logic inside services
-- maintain database integrity constraints
-
-Frontend:
-
-- prefer server components
-- keep API calls centralized in services layer
-
----
-
-# Non-Negotiable Design Rules
-
-Agents must never introduce:
-
-- ranking algorithms
-- engagement scoring
-- truth labels
-- vote systems for truth determination
-- evidence deletion
-
-The system must remain structurally neutral.
-
----
-
-# Current Development Focus
-
-High priority improvements:
-
-1. Evidence submission UX
-2. Confidence indicator computation
-3. Moderation transparency tools
-4. Reply threading improvements
-5. Feed performance and pagination
-6. Notification system stability
-
----
-
-# How AI Agents Should Work
-
-When implementing new features:
-
-1. update database model if required
-2. create service-layer logic
-3. expose API endpoint
-4. update schemas
-5. update web UI if needed
-
-Agents should prefer **small incremental PRs** over large changes.
-
----
-
-End of AGENT.md
+All sco
