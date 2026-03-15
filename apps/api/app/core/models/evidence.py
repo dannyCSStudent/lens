@@ -8,6 +8,8 @@ from sqlalchemy import (
     DateTime,
     Index,
     Enum,
+    Integer,
+    String
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -67,6 +69,16 @@ class Evidence(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+    archived_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    archive_version: Mapped[int] = mapped_column(Integer, default=1)
+    tampered: Mapped[bool] = mapped_column(default=False)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+
 
     # --- Indexes ---
     __table_args__ = (
