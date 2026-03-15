@@ -11,6 +11,10 @@ from app.core.models.post import Post
 from app.core.models.user import User
 from app.core.enums import ContentStatus, FeedMode
 from app.core.auth.dependencies import get_current_user, get_optional_user
+from app.services.evidence_agent import investigate_claim
+from app.services.claim_clustering import cluster_claim
+
+
 
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -76,3 +80,41 @@ async def get_post(
         raise HTTPException(status_code=404, detail="Post not found")
 
     return post
+
+# 🔒 Create post (authenticated)
+@router.post("/", response_model=PostRead)
+async def create_post(
+    payload: PostCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+
+    post = Post(
+        author_id=current_user.id,
+        title=payload.title,
+        content=payload.content,
+        post_type=payload.post_type,
+        status=ContentStatus.published,
+    )
+
+    db.add(post)
+
+    await db.commit()
+    await db.refresh(post)
+
+    # 🧠 Step 1 — Cluster similar claims
+    try:
+        await cluster_claim(db, post)
+    except Exception:
+        pass
+
+    # 🔎 Step 2 — Trigger AI evidence discovery
+    try:
+        await investigate_claim(db, post.id)
+    except Exception:
+        # investigation failures should not block post creation
+        pass
+
+    return post
+
+

@@ -76,7 +76,12 @@ class Evidence(Base):
     archive_version: Mapped[int] = mapped_column(Integer, default=1)
     tampered: Mapped[bool] = mapped_column(default=False)
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    credibility_score: Mapped[float | None] = mapped_column(nullable=True)
 
+    source_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("sources.id"),
+        nullable=True,
+    )
 
 
 

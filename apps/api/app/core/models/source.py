@@ -3,6 +3,8 @@ from sqlalchemy import String, Float, Boolean, TIMESTAMP, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column
+from datetime import datetime
+
 
 from app.core.models.base import Base
 
@@ -52,5 +54,12 @@ class Source(Base):
         nullable=False,
         default=1.0,
     )
+
+    accuracy_score: Mapped[float | None] = mapped_column(nullable=True)
+    contradiction_rate: Mapped[float | None] = mapped_column(nullable=True)
+    tamper_events: Mapped[int] = mapped_column(default=0)
+    citation_count: Mapped[int] = mapped_column(default=0)
+    last_evaluated_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
 
 

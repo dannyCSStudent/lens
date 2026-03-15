@@ -10,6 +10,11 @@ from app.services.truth_engine import update_post_truth
 from app.api.schemas.evidence import EvidenceCreate, EvidenceResponse
 from app.services.evidence_weight import calculate_evidence_weight
 from app.services.archive_service import fetch_page_content, generate_content_hash
+from app.services.credibility_engine import calculate_credibility_score
+from app.services.integrity_verifier import verify_evidence_integrity
+from app.services.source_intelligence import update_source_reputation
+from app.services.narrative_intelligence import analyze_post_narrative
+
 
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
@@ -63,6 +68,16 @@ async def create_evidence(
     )
 
     # --------------------------------
+    # CREDIBILITY ENGINE
+    # --------------------------------
+
+    credibility_score = calculate_credibility_score(
+        weight,
+        source_reputation,
+        False,
+    )
+
+    # --------------------------------
     # ARCHIVE + CONTENT HASH
     # --------------------------------
 
@@ -94,6 +109,8 @@ async def create_evidence(
         weight=weight,
         archive_url=archive_url,
         content_hash=content_hash,
+        credibility_score=credibility_score,
+
     )
 
     session.add(evidence)
@@ -105,6 +122,13 @@ async def create_evidence(
     # --------------------------------
 
     await update_post_truth(session, payload.post_id)
+
+    if source_id:
+        await update_source_reputation(session, source_id)
+
+    
+    await analyze_post_narrative(session, payload.post_id)
+
 
     return evidence
 
@@ -123,3 +147,11 @@ async def get_post_evidence(
     )
 
     return result.scalars().all()
+
+
+@router.post("/verify-integrity")
+async def verify_integrity(
+    session: AsyncSession = Depends(get_db),
+):
+    await verify_evidence_integrity(session)
+    return {"status": "verification_complete"}

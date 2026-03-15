@@ -1,35 +1,43 @@
-from sqlalchemy import text
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.models.evidence import Evidence
+from app.core.models.post import Post
 
 
-async def calculate_truth_score(session, post_id: str):
+async def update_post_truth(session: AsyncSession, post_id):
+
     result = await session.execute(
-        text("""
-        SELECT
-            SUM(CASE WHEN direction='support' THEN weight ELSE 0 END) AS support,
-            SUM(CASE WHEN direction='contradict' THEN weight ELSE 0 END) AS contradict
-        FROM evidence
-        WHERE post_id = :post_id
-        """),
-        {"post_id": post_id},
+        select(Evidence).where(Evidence.post_id == post_id)
     )
 
-    row = result.first()
+    evidence_list = result.scalars().all()
 
-    support = row.support or 0
-    contradict = row.contradict or 0
+    if not evidence_list:
+        return
 
-    total = support + contradict
+    support = 0
+    contradict = 0
 
-    if total == 0:
-        return 0.5, "low"
+    for e in evidence_list:
 
-    score = support / total
+        score = e.credibility_score or 0.3
 
-    if score > 0.8:
-        confidence = "high"
-    elif score > 0.6:
-        confidence = "medium"
-    else:
-        confidence = "low"
+        if e.direction == "supports":
+            support += score
+        else:
+            contradict += score
 
-    return score, confidence
+    raw_score = support - contradict
+
+    normalized = max(0.0, min((raw_score + 1) / 2, 1))
+
+    confidence = min(len(evidence_list) / 5, 1)
+
+    post = await session.get(Post, post_id)
+
+    if post:
+        post.truth_score = normalized
+        post.truth_confidence = confidence
+
+        await session.commit()

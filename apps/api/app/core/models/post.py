@@ -84,3 +84,10 @@ class Post(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
+
+    truth_score: Mapped[float | None] = mapped_column(nullable=True)
+    truth_confidence: Mapped[float | None] = mapped_column(nullable=True)
+    narrative_cluster_id: Mapped[str | None] = mapped_column(nullable=True)
+    narrative_risk_score: Mapped[float | None] = mapped_column(nullable=True)
+    claim_cluster_id: Mapped[str | None] = mapped_column(nullable=True)
+    claim_similarity_score: Mapped[float | None] = mapped_column(nullable=True)
