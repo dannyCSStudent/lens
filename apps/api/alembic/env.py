@@ -1,7 +1,10 @@
+from __future__ import annotations
+
+import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # Import models so they register with Base.metadata
 from app.core.models import (
@@ -18,6 +21,16 @@ from app.core.models.base import Base
 
 # Alembic Config
 config = context.config
+
+# Ensure ALEMBIC uses the same DATABASE_URL as the app.
+database_url = os.getenv(
+    "DATABASE_URL",
+    config.get_main_option(
+        "sqlalchemy.url",
+        "postgresql+psycopg://postgres:postgres@db:5432/lens",
+    ),
+)
+config.set_main_option("sqlalchemy.url", database_url)
 
 # Logging
 if config.config_file_name is not None:

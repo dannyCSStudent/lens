@@ -29,6 +29,8 @@ pydantic_core==2.41.5
 python-dotenv==1.2.1
 python-jose==3.5.0
 python-multipart==0.0.22
+pytest==8.3.3
+fakeredis==2.23.3
 redis==7.2.1
 rsa==4.9.1
 six==1.17.0

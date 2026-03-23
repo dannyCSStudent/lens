@@ -13,6 +13,12 @@ from app.core.security import (
 )
 from app.core.database import get_db
 from app.core.models import User, RefreshToken, EmailVerificationToken
+from app.services.user_service import (
+    create_user,
+    get_user_by_email,
+    get_user_by_username,
+    mark_successful_login,
+)
 from app.core.auth.dependencies import get_current_user
 from app.api.schemas.password_reset import PasswordResetRequest, PasswordResetConfirm   
 from app.api.schemas.auth import VerifyEmailSchema, RegisterSchema, ResendVerificationSchema
@@ -70,28 +76,27 @@ async def register(
     payload: RegisterSchema,
     db: AsyncSession = Depends(get_db),
 ):
-    # Check existing email
-    result = await db.execute(
-        select(User).where(User.email == payload.email)
-    )
-    existing_user = result.scalar_one_or_none()
-
+    existing_user = await get_user_by_email(db, payload.email)
     if existing_user:
         raise HTTPException(
             status_code=400,
             detail="Email already registered"
         )
 
+    existing_username = await get_user_by_username(db, payload.username)
+    if existing_username:
+        raise HTTPException(
+            status_code=400,
+            detail="Username already taken",
+        )
+
     # Create user
-    user = User(
+    user = await create_user(
+        db,
         email=payload.email,
         username=payload.username,
         password_hash=hash_password(payload.password),
-        is_verified=False,
     )
-
-    db.add(user)
-    await db.flush()  # Get user.id without committing
 
     # Generate verification token
     raw_token, token_hash = generate_verification_token()
@@ -123,10 +128,7 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ):
 
-    result = await db.execute(
-        select(User).where(User.email == data.email)
-    )
-    user = result.scalar_one_or_none()
+    user = await get_user_by_email(db, data.email)
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -192,8 +194,7 @@ async def login(
 
 
     # ✅ SUCCESS
-    user.failed_login_attempts = 0
-    user.locked_until = None
+    await mark_successful_login(db, user)
 
     # 🔥 1️⃣ Generate session UUID FIRST
     refresh_session_id = uuid.uuid4()
@@ -838,4 +839,3 @@ async def revoke_other_sessions(
     await db.commit()
 
     return {"message": "Other sessions revoked"}
-

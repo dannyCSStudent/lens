@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -33,9 +35,13 @@ app.add_middleware(
 )
 
 # ---- Rate Limiting ----
+DISABLE_RATE_LIMITS = os.getenv("DISABLE_RATE_LIMITS") == "1"
+
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
+
+if not DISABLE_RATE_LIMITS:
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
 # ---- Routers ----
 app.include_router(posts.router)

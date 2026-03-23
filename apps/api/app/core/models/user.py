@@ -1,16 +1,15 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Integer, String, Boolean, Enum, Text, TIMESTAMP
+from sqlalchemy import Integer, String, Boolean, Enum, Text, TIMESTAMP, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.models.base import Base
+from app.core.models.base import Base, TimestampMixin
 from app.core.enums import UserStatus
 
 
-class User(Base):
+class User(TimestampMixin, Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -38,10 +37,7 @@ class User(Base):
         nullable=False,
     )
 
-    display_name: Mapped[str | None] = mapped_column(
-        String,
-        nullable=True,
-    )
+    display_name: Mapped[str | None] = mapped_column(String, nullable=True)
 
     bio: Mapped[str | None] = mapped_column(
         Text,
@@ -51,6 +47,7 @@ class User(Base):
     is_moderator: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        server_default=text("false"),
         nullable=False,
     )
 
@@ -60,19 +57,17 @@ class User(Base):
         nullable=False,
     )
 
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-    )
-
     is_admin: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
     )
 
     failed_login_attempts: Mapped[int] = mapped_column(
         Integer,
         default=0,
+        server_default=text("0"),
         nullable=False,
     )
 
@@ -84,6 +79,7 @@ class User(Base):
     is_verified: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        server_default=text("false"),
         nullable=False,
     )
 
@@ -93,6 +89,11 @@ class User(Base):
     )
     
     password_reset_expires: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )
+
+    last_login_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=True,
     )

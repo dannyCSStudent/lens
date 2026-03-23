@@ -5,11 +5,15 @@ import json
 import os
 
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
-# Global limiter using Redis
+STORAGE_URI = os.getenv(
+    "RATE_LIMIT_STORAGE_URI",
+    os.getenv("REDIS_URL", "redis://redis:6379"),
+)
+
+# Global limiter using configurable backend (defaults to Redis).
 limiter = Limiter(
     key_func=get_remote_address,
-    storage_uri=REDIS_URL
+    storage_uri=STORAGE_URI,
 )
 
 
